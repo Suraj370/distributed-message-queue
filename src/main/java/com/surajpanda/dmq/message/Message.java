@@ -7,14 +7,24 @@ public record Message(
         UUID id,
         String key,
         String payload,
-        Instant timestamp
+        Instant timestamp,
+        int partition,
+        long offset
 ) {
-    public static Message create(String key, String payload) {
+
+    public static Message create(
+            String key,
+            String payload,
+            int partition,
+            long offset
+    ) {
         return new Message(
                 UUID.randomUUID(),
                 key,
                 payload,
-                Instant.now()
+                Instant.now(),
+                partition,
+                offset
         );
     }
 }

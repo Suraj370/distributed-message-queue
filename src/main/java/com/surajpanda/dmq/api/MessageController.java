@@ -17,21 +17,18 @@ public class MessageController {
 
     @PostMapping
     public ResponseEntity<Message> publish(
-            @RequestParam String key,
-            @RequestParam String payload
+        @RequestParam String topic,
+        @RequestParam String key,
+        @RequestParam String payload
     ) {
-        Message message = broker.publish(key, payload);
-        return ResponseEntity.ok(message);
-    }
+    Message message = broker.publish(
+            topic,
+            key,
+            payload
+    );
 
-    @GetMapping("/consume")
-    public ResponseEntity<Message> consume() {
-        Message message = broker.consume();
+    return ResponseEntity.ok(message);
+}
 
-        if (message == null) {
-            return ResponseEntity.noContent().build();
-        }
-
-        return ResponseEntity.ok(message);
-    }
+   
 }
