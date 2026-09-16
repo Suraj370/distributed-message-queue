@@ -15,7 +15,7 @@ public class Broker {
     this.topicManager = topicManager;
   }
 
-  public Topic createTopic(String name, int partitionCount) {
+  public Topic createTopic(String name, int partitionCount) throws IOException {
     return topicManager.createTopic(name, partitionCount);
   }
 

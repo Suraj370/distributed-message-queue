@@ -2,6 +2,7 @@ package com.surajpanda.dmq.topic;
 
 import com.surajpanda.dmq.partition.Partition;
 import com.surajpanda.dmq.wal.Wal;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Map;
@@ -13,7 +14,7 @@ public class TopicManager {
 
   private final Map<String, Topic> topics = new ConcurrentHashMap<>();
 
-  public Topic createTopic(String name, int partitionCount) {
+  public Topic createTopic(String name, int partitionCount) throws IOException {
 
     if (partitionCount <= 0) {
       throw new IllegalArgumentException("Partition count must be greater than zero");

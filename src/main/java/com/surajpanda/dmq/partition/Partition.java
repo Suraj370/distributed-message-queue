@@ -19,9 +19,22 @@ public class Partition {
 
   private final ReentrantLock writeLock = new ReentrantLock();
 
-  public Partition(int id, Wal wal) {
+  public Partition(int id, Wal wal) throws IOException {
     this.id = id;
     this.wal = wal;
+
+    recover();
+  }
+
+  private void recover() throws IOException {
+
+    var recoveredMessages = wal.read();
+
+    for (Message message : recoveredMessages) {
+      messages.offer(message);
+
+      nextOffset = Math.max(nextOffset, message.offset() + 1);
+    }
   }
 
   public Message append(String key, String payload) throws IOException {
