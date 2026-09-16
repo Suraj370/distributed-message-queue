@@ -33,6 +33,7 @@ public class RaftNode {
 
     if (newTerm > currentTerm) {
       currentTerm = newTerm;
+      state = RaftState.FOLLOWER;
     }
   }
 
