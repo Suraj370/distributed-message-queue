@@ -103,6 +103,26 @@ class WalTest {
   }
 
   @Test
+  void shouldCreateParentDirectoriesWhenAppending() throws Exception {
+
+    Path walFile = tempDir.resolve("nested/dir/partition-0.log");
+
+    Wal wal = new Wal(walFile);
+
+    Message message =
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0);
+
+    wal.append(message);
+
+    assertTrue(Files.exists(walFile));
+
+    var recoveredMessages = wal.read();
+
+    assertEquals(1, recoveredMessages.size());
+    assertEquals(message.id(), recoveredMessages.get(0).id());
+  }
+
+  @Test
   void shouldFailRecoveryWhenMiddleRecordIsCorrupted() throws Exception {
 
     Path walFile = tempDir.resolve("partition-0.log");

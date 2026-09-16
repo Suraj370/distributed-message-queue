@@ -2,6 +2,9 @@ package com.surajpanda.dmq.wal;
 
 import com.surajpanda.dmq.message.Message;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -30,7 +33,23 @@ public class Wal {
             message.partition(),
             message.offset());
 
-    Files.writeString(file, record, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    Path parent = file.getParent();
+    if (parent != null) {
+      Files.createDirectories(parent);
+    }
+
+    ByteBuffer buffer = ByteBuffer.wrap(record.getBytes(StandardCharsets.UTF_8));
+
+    try (FileChannel channel =
+        FileChannel.open(
+            file, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+
+      while (buffer.hasRemaining()) {
+        channel.write(buffer);
+      }
+
+      channel.force(true);
+    }
   }
 
   public List<Message> read() throws IOException {
