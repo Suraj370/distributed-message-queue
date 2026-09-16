@@ -89,4 +89,27 @@ class RaftNodeTest {
     RaftNode node = new RaftNode("broker-1");
     assertThrows(IllegalStateException.class, node::becomeFollower);
   }
+
+  @Test
+  void shouldStepDownToFollowerWhenCandidateObservesNewerTerm() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+
+    node.advanceTerm(5);
+
+    assertEquals(RaftState.FOLLOWER, node.getState());
+    assertEquals(5, node.getCurrentTerm());
+  }
+
+  @Test
+  void shouldStepDownToFollowerWhenLeaderObservesNewerTerm() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    node.becomeLeader();
+
+    node.advanceTerm(10);
+
+    assertEquals(RaftState.FOLLOWER, node.getState());
+    assertEquals(10, node.getCurrentTerm());
+  }
 }
