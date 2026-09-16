@@ -25,6 +25,10 @@ public class ConsumerGroup {
     members.add(consumer);
   }
 
+  public int memberCount() {
+    return members.size();
+  }
+
   public void assign(Partition partition, Consumer consumer) {
 
     if (!members.contains(consumer)) {
