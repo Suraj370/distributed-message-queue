@@ -72,6 +72,8 @@ public class Partition {
 
       messages.offer(message);
 
+      nextOffset = message.offset() + 1;
+
     } finally {
       writeLock.unlock();
     }
