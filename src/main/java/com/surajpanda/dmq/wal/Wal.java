@@ -34,6 +34,7 @@ public class Wal {
   }
 
   public List<Message> read() throws IOException {
+
     if (!Files.exists(file)) {
       return List.of();
     }
@@ -42,20 +43,37 @@ public class Wal {
 
     List<Message> messages = new ArrayList<>();
 
-    for (String line : lines) {
+    for (int i = 0; i < lines.size(); i++) {
 
-      String[] parts = line.split("\\|", -1);
+      String line = lines.get(i);
 
-      UUID id = UUID.fromString(parts[0]);
-      String key = parts[1];
-      String payload = parts[2];
-      Instant timestamp = Instant.parse(parts[3]);
-      int partition = Integer.parseInt(parts[4]);
-      long offset = Long.parseLong(parts[5]);
+      try {
 
-      Message message = new Message(id, key, payload, timestamp, partition, offset);
+        String[] parts = line.split("\\|", -1);
 
-      messages.add(message);
+        if (parts.length != 6) {
+          throw new IllegalArgumentException("Invalid WAL record");
+        }
+
+        UUID id = UUID.fromString(parts[0]);
+        String key = parts[1];
+        String payload = parts[2];
+        Instant timestamp = Instant.parse(parts[3]);
+        int partition = Integer.parseInt(parts[4]);
+        long offset = Long.parseLong(parts[5]);
+
+        Message message = new Message(id, key, payload, timestamp, partition, offset);
+
+        messages.add(message);
+
+      } catch (RuntimeException exception) {
+
+        if (i == lines.size() - 1) {
+          break;
+        }
+
+        throw new IOException("Corrupted WAL record at line " + i, exception);
+      }
     }
 
     return messages;
