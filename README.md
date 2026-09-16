@@ -1,7 +1,6 @@
 # Fault-Tolerant Distributed Message Queue
 
-A fault-tolerant distributed message queue built using Java,
-Spring Boot, and Gradle.
+A fault-tolerant distributed message queue built using Java, Spring Boot, and Gradle.
 
 ## Goals
 
