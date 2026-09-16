@@ -9,9 +9,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.stereotype.Service;
 
-@Service
 public class TopicManager {
 
   private static final Path DEFAULT_DATA_DIRECTORY = Path.of("data");

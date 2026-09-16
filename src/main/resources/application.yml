@@ -3,4 +3,22 @@ spring:
     name: distributed-message-queue
 
 server:
+  port: ${broker.port}
+
+broker:
+  id: broker-1
+  host: localhost
   port: 8080
+  data-directory: data/broker-1
+
+cluster:
+  brokers:
+    - id: broker-1
+      host: localhost
+      port: 8080
+    - id: broker-2
+      host: localhost
+      port: 8081
+    - id: broker-3
+      host: localhost
+      port: 8082
