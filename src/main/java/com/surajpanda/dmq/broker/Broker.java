@@ -10,9 +10,15 @@ import org.springframework.stereotype.Service;
 public class Broker {
 
   private final TopicManager topicManager;
+  private final BrokerProperties brokerProperties;
 
-  public Broker(TopicManager topicManager) {
+  public Broker(TopicManager topicManager, BrokerProperties brokerProperties) {
     this.topicManager = topicManager;
+    this.brokerProperties = brokerProperties;
+  }
+
+  public String getBrokerId() {
+    return brokerProperties.id();
   }
 
   public Topic createTopic(String name, int partitionCount) throws IOException {
