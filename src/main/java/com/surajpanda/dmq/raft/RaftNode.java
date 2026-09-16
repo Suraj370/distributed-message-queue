@@ -35,4 +35,33 @@ public class RaftNode {
       currentTerm = newTerm;
     }
   }
+
+  public void becomeCandidate() {
+
+    if (state != RaftState.FOLLOWER) {
+      throw new IllegalStateException("Only a FOLLOWER can become a CANDIDATE, was: " + state);
+    }
+
+    currentTerm++;
+    state = RaftState.CANDIDATE;
+  }
+
+  public void becomeLeader() {
+
+    if (state != RaftState.CANDIDATE) {
+      throw new IllegalStateException("Only a CANDIDATE can become LEADER, was: " + state);
+    }
+
+    state = RaftState.LEADER;
+  }
+
+  public void becomeFollower() {
+
+    if (state != RaftState.CANDIDATE) {
+      throw new IllegalStateException(
+          "Only a CANDIDATE can voluntarily step down to FOLLOWER, was: " + state);
+    }
+
+    state = RaftState.FOLLOWER;
+  }
 }
