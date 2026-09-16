@@ -8,34 +8,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class Broker {
 
-    private final TopicManager topicManager;
+  private final TopicManager topicManager;
 
-    public Broker(TopicManager topicManager) {
-        this.topicManager = topicManager;
+  public Broker(TopicManager topicManager) {
+    this.topicManager = topicManager;
+  }
+
+  public Topic createTopic(String name, int partitionCount) {
+    return topicManager.createTopic(name, partitionCount);
+  }
+
+  public Message publish(String topicName, String key, String payload) {
+    Topic topic = topicManager.getTopic(topicName);
+
+    if (topic == null) {
+      throw new IllegalArgumentException("Topic does not exist: " + topicName);
     }
 
-    public Topic createTopic(String name, int partitionCount) {
-        return topicManager.createTopic(name, partitionCount);
-    }
+    int partitionId = Math.abs(key.hashCode()) % topic.getPartitions().size();
 
-    public Message publish(
-            String topicName,
-            String key,
-            String payload
-    ) {
-        Topic topic = topicManager.getTopic(topicName);
-
-        if (topic == null) {
-            throw new IllegalArgumentException(
-                    "Topic does not exist: " + topicName
-            );
-        }
-
-        int partitionId =
-                Math.abs(key.hashCode()) % topic.getPartitions().size();
-
-        return topic
-                .getPartition(partitionId)
-                .append(key, payload);
-    }
+    return topic.getPartition(partitionId).append(key, payload);
+  }
 }

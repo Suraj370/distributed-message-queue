@@ -9,19 +9,15 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/topics")
 public class TopicController {
 
-    private final Broker broker;
+  private final Broker broker;
 
-    public TopicController(Broker broker) {
-        this.broker = broker;
-    }
+  public TopicController(Broker broker) {
+    this.broker = broker;
+  }
 
-    @PostMapping
-    public ResponseEntity<Topic> createTopic(
-            @RequestParam String name,
-            @RequestParam int partitions
-    ) {
-        return ResponseEntity.ok(
-                broker.createTopic(name, partitions)
-        );
-    }
+  @PostMapping
+  public ResponseEntity<Topic> createTopic(
+      @RequestParam String name, @RequestParam int partitions) {
+    return ResponseEntity.ok(broker.createTopic(name, partitions));
+  }
 }

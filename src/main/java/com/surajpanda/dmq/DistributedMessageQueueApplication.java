@@ -6,8 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class DistributedMessageQueueApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(DistributedMessageQueueApplication.class, args);
-	}
-
+  public static void main(String[] args) {
+    SpringApplication.run(DistributedMessageQueueApplication.class, args);
+  }
 }

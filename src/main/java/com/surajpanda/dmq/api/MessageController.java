@@ -9,26 +9,17 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/messages")
 public class MessageController {
 
-    private final Broker broker;
+  private final Broker broker;
 
-    public MessageController(Broker broker) {
-        this.broker = broker;
-    }
+  public MessageController(Broker broker) {
+    this.broker = broker;
+  }
 
-    @PostMapping
-    public ResponseEntity<Message> publish(
-        @RequestParam String topic,
-        @RequestParam String key,
-        @RequestParam String payload
-    ) {
-    Message message = broker.publish(
-            topic,
-            key,
-            payload
-    );
+  @PostMapping
+  public ResponseEntity<Message> publish(
+      @RequestParam String topic, @RequestParam String key, @RequestParam String payload) {
+    Message message = broker.publish(topic, key, payload);
 
     return ResponseEntity.ok(message);
-}
-
-   
+  }
 }
