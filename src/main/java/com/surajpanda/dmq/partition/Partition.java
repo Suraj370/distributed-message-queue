@@ -59,6 +59,24 @@ public class Partition {
     }
   }
 
+  public void applyReplicated(Message message) throws IOException {
+
+    writeLock.lock();
+
+    try {
+      if (message.offset() < nextOffset) {
+        return;
+      }
+
+      wal.append(message);
+
+      messages.offer(message);
+
+    } finally {
+      writeLock.unlock();
+    }
+  }
+
   public Message poll() {
     return messages.poll();
   }
