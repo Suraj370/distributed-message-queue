@@ -53,7 +53,17 @@ public class TopicManager {
       }
 
       String name = parts[0];
-      int partitionCount = Integer.parseInt(parts[1]);
+      int partitionCount;
+
+      try {
+        partitionCount = Integer.parseInt(parts[1]);
+      } catch (NumberFormatException exception) {
+        throw new IOException("Corrupted topic metadata record: " + line, exception);
+      }
+
+      if (partitionCount <= 0) {
+        throw new IOException("Corrupted topic metadata record: " + line);
+      }
 
       if (topics.containsKey(name)) {
         continue;
