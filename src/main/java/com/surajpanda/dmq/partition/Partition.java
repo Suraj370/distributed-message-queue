@@ -5,14 +5,19 @@ import com.surajpanda.dmq.wal.Wal;
 import java.io.IOException;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Partition {
 
   private final int id;
+
   private final Queue<Message> messages = new ConcurrentLinkedQueue<>();
-  private final AtomicLong nextOffset = new AtomicLong(0);
+
+  private long nextOffset = 0;
+
   private final Wal wal;
+
+  private final ReentrantLock writeLock = new ReentrantLock();
 
   public Partition(int id, Wal wal) {
     this.id = id;
@@ -21,15 +26,24 @@ public class Partition {
 
   public Message append(String key, String payload) throws IOException {
 
-    long offset = nextOffset.getAndIncrement();
+    writeLock.lock();
 
-    Message message = Message.create(key, payload, id, offset);
+    try {
+      long offset = nextOffset;
 
-    wal.append(message);
+      Message message = Message.create(key, payload, id, offset);
 
-    messages.offer(message);
+      wal.append(message);
 
-    return message;
+      messages.offer(message);
+
+      nextOffset++;
+
+      return message;
+
+    } finally {
+      writeLock.unlock();
+    }
   }
 
   public Message poll() {
