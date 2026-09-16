@@ -40,4 +40,53 @@ class RaftNodeTest {
     node.advanceTerm(5);
     assertEquals(5, node.getCurrentTerm());
   }
+
+  @Test
+  void shouldTransitionFromFollowerToCandidate() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    assertEquals(RaftState.CANDIDATE, node.getState());
+  }
+
+  @Test
+  void shouldIncrementTermWhenBecomingCandidate() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    assertEquals(1, node.getCurrentTerm());
+  }
+
+  @Test
+  void shouldTransitionFromCandidateToLeader() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    node.becomeLeader();
+    assertEquals(RaftState.LEADER, node.getState());
+  }
+
+  @Test
+  void shouldTransitionFromCandidateToFollower() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    node.becomeFollower();
+    assertEquals(RaftState.FOLLOWER, node.getState());
+  }
+
+  @Test
+  void shouldRejectBecomingCandidateWhenNotFollower() {
+    RaftNode node = new RaftNode("broker-1");
+    node.becomeCandidate();
+    assertThrows(IllegalStateException.class, node::becomeCandidate);
+  }
+
+  @Test
+  void shouldRejectBecomingLeaderWhenNotCandidate() {
+    RaftNode node = new RaftNode("broker-1");
+    assertThrows(IllegalStateException.class, node::becomeLeader);
+  }
+
+  @Test
+  void shouldRejectVoluntaryFollowerStepDownWhenNotCandidate() {
+    RaftNode node = new RaftNode("broker-1");
+    assertThrows(IllegalStateException.class, node::becomeFollower);
+  }
 }
