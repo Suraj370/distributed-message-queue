@@ -1,6 +1,8 @@
 package com.surajpanda.dmq.topic;
 
 import com.surajpanda.dmq.partition.Partition;
+import com.surajpanda.dmq.wal.Wal;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +26,12 @@ public class TopicManager {
     var partitions = new ArrayList<Partition>();
 
     for (int i = 0; i < partitionCount; i++) {
-      partitions.add(new Partition(i));
+
+      Path walPath = Path.of("data", name, "partition-" + i + ".log");
+
+      Wal wal = new Wal(walPath);
+
+      partitions.add(new Partition(i, wal));
     }
 
     Topic topic = new Topic(name, partitions);

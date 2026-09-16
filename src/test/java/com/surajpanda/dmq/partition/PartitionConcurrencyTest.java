@@ -1,19 +1,32 @@
 package com.surajpanda.dmq.partition;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.surajpanda.dmq.message.Message;
+import com.surajpanda.dmq.wal.Wal;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class PartitionConcurrencyTest {
+
+  @TempDir Path tempDir;
 
   @Test
   void shouldAssignUniqueSequentialOffsetsConcurrently() throws Exception {
 
-    Partition partition = new Partition(0);
+    Path walFile = tempDir.resolve("partition-0.log");
+
+    Wal wal = new Wal(walFile);
+
+    Partition partition = new Partition(0, wal);
 
     int threadCount = 100;
     int messagesPerThread = 1000;
@@ -34,6 +47,8 @@ class PartitionConcurrencyTest {
 
                   partition.append("key-" + threadId, "message-" + j);
                 }
+
+                return null;
               }));
     }
 
