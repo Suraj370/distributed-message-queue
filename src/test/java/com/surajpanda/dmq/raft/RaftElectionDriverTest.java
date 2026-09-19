@@ -14,7 +14,7 @@ class RaftElectionDriverTest {
       RaftNode node, RaftNode peer, long startMillis) {
     List<RaftPeer> peers =
         List.of(new RaftPeer(peer.getNodeId(), new InProcessRaftPeerConnection(peer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     return new RaftElectionDriver(node, coordinator, timeout, startMillis);
   }
@@ -23,7 +23,7 @@ class RaftElectionDriverTest {
   void shouldStartElectionAfterTimeoutElapses() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode peer = new RaftNode("broker-2");
-    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9")); // peer busy, will reject
+    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0)); // peer busy, will reject
 
     RaftElectionDriver driver = driverWithBusyPeer(node, peer, 0);
 
@@ -39,7 +39,7 @@ class RaftElectionDriverTest {
   void shouldNotStartElectionWhenValidHeartbeatsKeepArriving() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode peer = new RaftNode("broker-2");
-    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9"));
+    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0));
 
     RaftElectionDriver driver = driverWithBusyPeer(node, peer, 0);
 
@@ -53,7 +53,7 @@ class RaftElectionDriverTest {
   void heartbeatShouldResetTheElectionTimeout() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode peer = new RaftNode("broker-2");
-    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9"));
+    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0));
 
     RaftElectionDriver driver = driverWithBusyPeer(node, peer, 0);
 
@@ -71,10 +71,10 @@ class RaftElectionDriverTest {
     node.advanceTerm(5);
     RaftNode peer = new RaftNode("broker-2");
     peer.handleRequestVote(
-        new RequestVoteRequest(6, "broker-9")); // peer busy, will reject at term 6
+        new RequestVoteRequest(6, "broker-9", 0, 0)); // peer busy, will reject at term 6
 
     List<RaftPeer> peers = List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(peer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver = new RaftElectionDriver(node, coordinator, timeout, 0);
 
@@ -95,7 +95,7 @@ class RaftElectionDriverTest {
 
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver =
-        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of()), timeout, 0);
+        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of(), 1), timeout, 0);
 
     HeartbeatResponse response = driver.onHeartbeatReceived(new Heartbeat(1, "leader-1"), 10);
 
@@ -111,7 +111,7 @@ class RaftElectionDriverTest {
 
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver =
-        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of()), timeout, 0);
+        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of(), 1), timeout, 0);
 
     driver.tick(10_000); // far past any timeout
 

@@ -11,7 +11,7 @@ class RaftLogReplicatorTest {
   @Test
   void shouldRejectReplicatingWhenNotLeader() {
     RaftNode node = new RaftNode("broker-1");
-    RaftLogReplicator replicator = new RaftLogReplicator(node, List.of());
+    RaftLogReplicator replicator = new RaftLogReplicator(node, List.of(), 1);
 
     assertThrows(IllegalStateException.class, () -> replicator.replicate(0));
   }
@@ -25,7 +25,8 @@ class RaftLogReplicatorTest {
     leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-2");
 
     RaftLogReplicator replicator =
-        new RaftLogReplicator(leader, List.of(new AppendEntriesPeer("broker-2", request -> null)));
+        new RaftLogReplicator(
+            leader, List.of(new AppendEntriesPeer("broker-2", request -> null)), 2);
     replicator.initializeForNewLeader();
 
     assertEquals(3, replicator.getNextIndex("broker-2"));
@@ -39,7 +40,8 @@ class RaftLogReplicatorTest {
     leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-1");
 
     RaftLogReplicator replicator =
-        new RaftLogReplicator(leader, List.of(new AppendEntriesPeer("broker-2", request -> null)));
+        new RaftLogReplicator(
+            leader, List.of(new AppendEntriesPeer("broker-2", request -> null)), 2);
     replicator.initializeForNewLeader();
 
     assertEquals(0, replicator.getMatchIndex("broker-2"));
@@ -57,7 +59,7 @@ class RaftLogReplicatorTest {
     RaftNode follower = new RaftNode("broker-2");
     List<AppendEntriesPeer> peers =
         List.of(new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(follower)));
-    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers);
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
     replicator.initializeForNewLeader();
 
     replicator.replicate(0);
@@ -86,7 +88,7 @@ class RaftLogReplicatorTest {
         List.of(
             new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(follower1)),
             new AppendEntriesPeer("broker-3", new InProcessAppendEntriesConnection(follower2)));
-    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers);
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 3);
     replicator.initializeForNewLeader();
 
     replicator.replicate(0);
@@ -107,7 +109,7 @@ class RaftLogReplicatorTest {
     RaftNode follower = new RaftNode("broker-2");
     List<AppendEntriesPeer> peers =
         List.of(new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(follower)));
-    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers);
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
     replicator.initializeForNewLeader();
     replicator.replicate(0);
 
@@ -128,7 +130,7 @@ class RaftLogReplicatorTest {
 
     List<AppendEntriesPeer> peers =
         List.of(new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(aheadPeer)));
-    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers);
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
     replicator.initializeForNewLeader();
 
     replicator.replicate(0);
@@ -157,7 +159,7 @@ class RaftLogReplicatorTest {
 
     List<AppendEntriesPeer> peers =
         List.of(new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(follower)));
-    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers);
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
     replicator.initializeForNewLeader();
     assertEquals(4, replicator.getNextIndex("broker-2")); // leader lastIndex(3) + 1
 

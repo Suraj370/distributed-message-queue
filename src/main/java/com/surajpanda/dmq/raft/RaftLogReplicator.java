@@ -19,17 +19,35 @@ import java.util.Map;
  * <p>initializeForNewLeader() must be called once when this node becomes LEADER, before the first
  * replicate() call: nextIndex resets to lastLogIndex+1 and matchIndex resets to 0 for every peer on
  * each new leadership term, per Raft §5.3.
+ *
+ * <p>clusterSize is the configured voting membership of the whole cluster - it is deliberately a
+ * separate number from peers.size(). peers is only the set of currently reachable AppendEntries
+ * connections; a peer that is down or partitioned is simply omitted from that list rather than
+ * being removed from the cluster (membership stays static in this milestone - see requirement 5).
+ * Majority must be computed from clusterSize, never from peers.size() + 1, or an unavailable member
+ * would silently shrink the majority requirement and let a minority commit.
  */
 public class RaftLogReplicator {
 
   private final RaftNode localNode;
   private final List<AppendEntriesPeer> peers;
+  private final int clusterSize;
   private final Map<String, Long> nextIndex = new HashMap<>();
   private final Map<String, Long> matchIndex = new HashMap<>();
 
-  public RaftLogReplicator(RaftNode localNode, List<AppendEntriesPeer> peers) {
+  public RaftLogReplicator(RaftNode localNode, List<AppendEntriesPeer> peers, int clusterSize) {
+
+    if (clusterSize < peers.size() + 1) {
+      throw new IllegalArgumentException(
+          "clusterSize must be at least the leader plus every listed peer: clusterSize="
+              + clusterSize
+              + ", peers="
+              + peers.size());
+    }
+
     this.localNode = localNode;
     this.peers = List.copyOf(peers);
+    this.clusterSize = clusterSize;
   }
 
   public void initializeForNewLeader() {
@@ -118,7 +136,6 @@ public class RaftLogReplicator {
     }
 
     long currentTerm = localNode.getCurrentTerm();
-    int clusterSize = peers.size() + 1;
     int majority = (clusterSize / 2) + 1;
 
     for (long candidate = localNode.getLog().lastIndex();

@@ -16,7 +16,7 @@ class RaftNodeSchedulerTest {
     RaftNode node = new RaftNode("broker-1");
     RaftElectionDriver driver =
         new RaftElectionDriver(
-            node, new ElectionCoordinator(node, List.of()), electionTimeout(), 0);
+            node, new ElectionCoordinator(node, List.of(), 1), electionTimeout(), 0);
     HeartbeatBroadcaster broadcaster = new HeartbeatBroadcaster(node, List.of());
 
     assertThrows(
@@ -47,7 +47,7 @@ class RaftNodeSchedulerTest {
 
     RaftElectionDriver driver =
         new RaftElectionDriver(
-            leader, new ElectionCoordinator(leader, List.of()), electionTimeout(), 0);
+            leader, new ElectionCoordinator(leader, List.of(), 1), electionTimeout(), 0);
 
     RaftNodeScheduler scheduler =
         new RaftNodeScheduler(driver, broadcaster, 5_000, 20, Clock.systemUTC());

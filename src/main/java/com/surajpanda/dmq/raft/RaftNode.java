@@ -131,14 +131,33 @@ public class RaftNode {
       advanceTerm(request.term());
     }
 
-    boolean canGrantVote = votedFor == null || votedFor.equals(request.candidateId());
+    boolean alreadyEligibleCandidate = votedFor == null || votedFor.equals(request.candidateId());
+    boolean logIsUpToDate = isCandidateLogUpToDate(request.lastLogTerm(), request.lastLogIndex());
 
-    if (!canGrantVote) {
+    if (!alreadyEligibleCandidate || !logIsUpToDate) {
       return new RequestVoteResponse(currentTerm, false);
     }
 
     votedFor = request.candidateId();
     return new RequestVoteResponse(currentTerm, true);
+  }
+
+  /**
+   * Raft's log up-to-date comparison (§5.4.1): a higher lastLogTerm always wins; if the terms are
+   * equal, a higher-or-equal lastLogIndex wins. A candidate failing this check is never granted a
+   * vote, regardless of term/votedFor eligibility - this is what keeps a log-behind node from ever
+   * becoming leader over a node holding entries it doesn't have.
+   */
+  private boolean isCandidateLogUpToDate(long candidateLastLogTerm, long candidateLastLogIndex) {
+
+    long voterLastLogTerm = log.lastTerm();
+    long voterLastLogIndex = log.lastIndex();
+
+    if (candidateLastLogTerm != voterLastLogTerm) {
+      return candidateLastLogTerm > voterLastLogTerm;
+    }
+
+    return candidateLastLogIndex >= voterLastLogIndex;
   }
 
   public HeartbeatResponse handleHeartbeat(Heartbeat heartbeat) {

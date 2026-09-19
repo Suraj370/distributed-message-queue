@@ -14,11 +14,11 @@ class RaftElectionDriverAppendEntriesTest {
   void successfulAppendEntriesResetsTheElectionTimeout() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode busyPeer = new RaftNode("broker-2");
-    busyPeer.handleRequestVote(new RequestVoteRequest(1, "broker-9"));
+    busyPeer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0));
 
     List<RaftPeer> peers =
         List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(busyPeer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver = new RaftElectionDriver(node, coordinator, timeout, 0);
 
@@ -38,11 +38,11 @@ class RaftElectionDriverAppendEntriesTest {
   void currentTermAppendEntriesWithLogMismatchStillResetsTheElectionTimeout() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode busyPeer = new RaftNode("broker-2");
-    busyPeer.handleRequestVote(new RequestVoteRequest(1, "broker-9"));
+    busyPeer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0));
 
     List<RaftPeer> peers =
         List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(busyPeer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver = new RaftElectionDriver(node, coordinator, timeout, 0);
 
@@ -64,11 +64,12 @@ class RaftElectionDriverAppendEntriesTest {
     RaftNode node = new RaftNode("broker-1");
     node.advanceTerm(5);
     RaftNode busyPeer = new RaftNode("broker-2");
-    busyPeer.handleRequestVote(new RequestVoteRequest(6, "broker-9")); // will reject at term 6
+    busyPeer.handleRequestVote(
+        new RequestVoteRequest(6, "broker-9", 0, 0)); // will reject at term 6
 
     List<RaftPeer> peers =
         List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(busyPeer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver = new RaftElectionDriver(node, coordinator, timeout, 0);
 
@@ -90,11 +91,11 @@ class RaftElectionDriverAppendEntriesTest {
   void newerTermAppendEntriesWithLogMismatchUpdatesStateAndResetsTheElectionTimeout() {
     RaftNode node = new RaftNode("broker-1");
     RaftNode busyPeer = new RaftNode("broker-2");
-    busyPeer.handleRequestVote(new RequestVoteRequest(10, "broker-9"));
+    busyPeer.handleRequestVote(new RequestVoteRequest(10, "broker-9", 0, 0));
 
     List<RaftPeer> peers =
         List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(busyPeer)));
-    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers);
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver = new RaftElectionDriver(node, coordinator, timeout, 0);
 
@@ -121,7 +122,7 @@ class RaftElectionDriverAppendEntriesTest {
 
     ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver driver =
-        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of()), timeout, 0);
+        new RaftElectionDriver(node, new ElectionCoordinator(node, List.of(), 1), timeout, 0);
 
     AppendEntriesResponse response =
         driver.onAppendEntriesReceived(

@@ -28,7 +28,8 @@ class RaftFailoverTest {
             a,
             List.of(
                 new RaftPeer("B", new InProcessRaftPeerConnection(b)),
-                new RaftPeer("C", new InProcessRaftPeerConnection(c))));
+                new RaftPeer("C", new InProcessRaftPeerConnection(c))),
+            3);
     assertTrue(aElection.startElection());
     assertEquals(RaftState.LEADER, a.getState());
     assertEquals(1, a.getCurrentTerm());
@@ -40,7 +41,8 @@ class RaftFailoverTest {
             a,
             List.of(
                 new AppendEntriesPeer("B", new InProcessAppendEntriesConnection(b)),
-                new AppendEntriesPeer("C", new InProcessAppendEntriesConnection(c))));
+                new AppendEntriesPeer("C", new InProcessAppendEntriesConnection(c))),
+            3);
     aReplicator.initializeForNewLeader();
     aReplicator.replicate(
         a.getCommitIndex()); // round 1: replicates the entry, A's commitIndex -> 1
@@ -62,7 +64,8 @@ class RaftFailoverTest {
             b,
             List.of(
                 new RaftPeer("A", unreachableA),
-                new RaftPeer("C", new InProcessRaftPeerConnection(c))));
+                new RaftPeer("C", new InProcessRaftPeerConnection(c))),
+            3);
     ElectionTimeout bTimeout = new ElectionTimeout(100, 100, new Random(1));
     RaftElectionDriver bDriver = new RaftElectionDriver(b, bElection, bTimeout, 0);
 
@@ -78,15 +81,19 @@ class RaftFailoverTest {
     assertEquals(1, b.getCommitIndex());
 
     // The new leader can keep the cluster moving: a fresh current-term entry still commits by
-    // majority against the surviving nodes.
+    // majority against the surviving nodes. The cluster is still configured as 3 voting members -
+    // A is merely unreachable, not removed - so clusterSize stays 3 even though A is omitted from
+    // this replicator's peer list.
     b.getLog().appendCommand(b.getCurrentTerm(), "cmd-2");
     RaftLogReplicator bReplicator =
         new RaftLogReplicator(
-            b, List.of(new AppendEntriesPeer("C", new InProcessAppendEntriesConnection(c))));
+            b, List.of(new AppendEntriesPeer("C", new InProcessAppendEntriesConnection(c))), 3);
     bReplicator.initializeForNewLeader();
     bReplicator.replicate(b.getCommitIndex());
 
-    assertEquals(2, b.getCommitIndex()); // B + C = 2 of the surviving 2-node replication target
+    // B (self) + C = 2 of the still-3-node cluster, which meets majority(3)=2 even with A
+    // unreachable.
+    assertEquals(2, b.getCommitIndex());
     assertEquals("cmd-2", c.getLog().get(2).orElseThrow().command());
 
     // A, having lost leadership, can never again advance its own commitIndex through replication:
@@ -107,8 +114,8 @@ class RaftFailoverTest {
         new RaftLogReplicator(
             leader,
             List.of(
-                new AppendEntriesPeer(
-                    "broker-2", new InProcessAppendEntriesConnection(aheadPeer))));
+                new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(aheadPeer))),
+            2);
     replicator.initializeForNewLeader();
     replicator.replicate(leader.getCommitIndex());
 
@@ -125,7 +132,8 @@ class RaftFailoverTest {
     ElectionCoordinator election =
         new ElectionCoordinator(
             candidateNode,
-            List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(aheadPeer))));
+            List.of(new RaftPeer("broker-2", new InProcessRaftPeerConnection(aheadPeer))),
+            2);
 
     boolean elected = election.startElection();
 
