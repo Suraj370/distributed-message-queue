@@ -104,7 +104,7 @@ public class TopicManager {
 
       Wal wal = new Wal(walPath);
 
-      partitions.add(new Partition(i, wal));
+      partitions.add(new Partition(name, i, wal));
     }
 
     return new Topic(name, partitions);
