@@ -64,4 +64,23 @@ public class RaftElectionDriver {
 
     return response;
   }
+
+  /**
+   * Called whenever an AppendEntries request is received. Reuses the same ElectionTimeout as
+   * onHeartbeatReceived - there is only ever one timeout mechanism per node. The timeout is reset
+   * only when the request fully succeeded (valid term and matching log); a valid-term leader whose
+   * entries were rejected for a log mismatch still leaves the timeout untouched in this commit,
+   * since there is no backtracking/retry logic yet for that case to matter.
+   */
+  public AppendEntriesResponse onAppendEntriesReceived(
+      AppendEntriesRequest request, long nowMillis) {
+
+    AppendEntriesResponse response = node.handleAppendEntries(request);
+
+    if (response.success()) {
+      electionTimeout.reset(nowMillis);
+    }
+
+    return response;
+  }
 }

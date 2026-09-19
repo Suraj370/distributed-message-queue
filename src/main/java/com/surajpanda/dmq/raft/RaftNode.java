@@ -6,6 +6,7 @@ public class RaftNode {
   private long currentTerm;
   private RaftState state;
   private String votedFor;
+  private final RaftLog log = new RaftLog();
 
   public RaftNode(String nodeId) {
     this.nodeId = nodeId;
@@ -28,6 +29,10 @@ public class RaftNode {
 
   public String getVotedFor() {
     return votedFor;
+  }
+
+  public RaftLog getLog() {
+    return log;
   }
 
   public void advanceTerm(long newTerm) {
@@ -107,5 +112,25 @@ public class RaftNode {
     }
 
     return new HeartbeatResponse(currentTerm, true);
+  }
+
+  public AppendEntriesResponse handleAppendEntries(AppendEntriesRequest request) {
+
+    if (request.term() < currentTerm) {
+      return new AppendEntriesResponse(currentTerm, false, log.lastIndex());
+    }
+
+    if (request.term() > currentTerm) {
+      advanceTerm(request.term());
+    } else if (state == RaftState.CANDIDATE) {
+      becomeFollower();
+    }
+
+    // leaderCommit is part of the protocol but intentionally unused until Commit 6 introduces a
+    // commit index and state-machine application.
+    boolean matched =
+        log.appendEntries(request.prevLogIndex(), request.prevLogTerm(), request.entries());
+
+    return new AppendEntriesResponse(currentTerm, matched, log.lastIndex());
   }
 }
