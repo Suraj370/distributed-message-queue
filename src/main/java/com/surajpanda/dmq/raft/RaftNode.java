@@ -97,7 +97,7 @@ public class RaftNode {
   public HeartbeatResponse handleHeartbeat(Heartbeat heartbeat) {
 
     if (heartbeat.term() < currentTerm) {
-      return new HeartbeatResponse(currentTerm);
+      return new HeartbeatResponse(currentTerm, false);
     }
 
     if (heartbeat.term() > currentTerm) {
@@ -106,6 +106,6 @@ public class RaftNode {
       becomeFollower();
     }
 
-    return new HeartbeatResponse(currentTerm);
+    return new HeartbeatResponse(currentTerm, true);
   }
 }

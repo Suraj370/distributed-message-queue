@@ -52,13 +52,13 @@ public class RaftElectionDriver {
   /**
    * Called whenever a heartbeat is received. Delegates the Raft state rules to
    * RaftNode.handleHeartbeat, and only resets the election timeout when the heartbeat was actually
-   * accepted (its term was not stale) - a rejected/stale heartbeat must not extend the timeout.
+   * accepted - a rejected/stale heartbeat must not extend the timeout.
    */
   public HeartbeatResponse onHeartbeatReceived(Heartbeat heartbeat, long nowMillis) {
 
     HeartbeatResponse response = node.handleHeartbeat(heartbeat);
 
-    if (response.term() == heartbeat.term()) {
+    if (response.accepted()) {
       electionTimeout.reset(nowMillis);
     }
 

@@ -1,6 +1,8 @@
 package com.surajpanda.dmq.raft;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Random;
@@ -55,7 +57,9 @@ class RaftElectionDriverTest {
 
     RaftElectionDriver driver = driverWithBusyPeer(node, peer, 0);
 
-    driver.onHeartbeatReceived(new Heartbeat(0, "leader-1"), 90); // pushes deadline to 190
+    HeartbeatResponse response = driver.onHeartbeatReceived(new Heartbeat(0, "leader-1"), 90);
+    assertTrue(response.accepted()); // pushes deadline to 190
+
     driver.tick(150); // would have elapsed at original deadline (100), but not the reset one
 
     assertEquals(RaftState.FOLLOWER, node.getState());
@@ -76,6 +80,7 @@ class RaftElectionDriverTest {
 
     HeartbeatResponse response = driver.onHeartbeatReceived(new Heartbeat(3, "old-leader"), 50);
     assertEquals(5, response.term());
+    assertFalse(response.accepted());
 
     driver.tick(100); // original deadline reached; stale heartbeat must not have pushed it back
 
@@ -92,9 +97,10 @@ class RaftElectionDriverTest {
     RaftElectionDriver driver =
         new RaftElectionDriver(node, new ElectionCoordinator(node, List.of()), timeout, 0);
 
-    driver.onHeartbeatReceived(new Heartbeat(1, "leader-1"), 10);
+    HeartbeatResponse response = driver.onHeartbeatReceived(new Heartbeat(1, "leader-1"), 10);
 
     assertEquals(RaftState.FOLLOWER, node.getState());
+    assertTrue(response.accepted());
   }
 
   @Test

@@ -1,6 +1,8 @@
 package com.surajpanda.dmq.raft;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +17,7 @@ class HeartbeatTest {
     assertEquals(5, node.getCurrentTerm());
     assertEquals(RaftState.FOLLOWER, node.getState());
     assertEquals(5, response.term());
+    assertTrue(response.accepted());
   }
 
   @Test
@@ -27,6 +30,7 @@ class HeartbeatTest {
     assertEquals(RaftState.FOLLOWER, node.getState());
     assertEquals(1, node.getCurrentTerm());
     assertEquals(1, response.term());
+    assertTrue(response.accepted());
   }
 
   @Test
@@ -39,6 +43,7 @@ class HeartbeatTest {
     assertEquals(5, node.getCurrentTerm());
     assertEquals(RaftState.FOLLOWER, node.getState());
     assertEquals(5, response.term());
+    assertFalse(response.accepted());
   }
 
   @Test
@@ -52,6 +57,7 @@ class HeartbeatTest {
     assertEquals(RaftState.LEADER, node.getState());
     assertEquals(1, node.getCurrentTerm());
     assertEquals(1, response.term());
+    assertFalse(response.accepted());
   }
 
   @Test
@@ -62,5 +68,6 @@ class HeartbeatTest {
 
     assertEquals(RaftState.FOLLOWER, node.getState());
     assertEquals(0, response.term());
+    assertTrue(response.accepted());
   }
 }

@@ -1,3 +1,3 @@
 package com.surajpanda.dmq.raft;
 
-public record HeartbeatResponse(long term) {}
+public record HeartbeatResponse(long term, boolean accepted) {}
