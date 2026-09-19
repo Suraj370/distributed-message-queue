@@ -6,15 +6,34 @@ public class RaftNode {
   private long currentTerm;
   private RaftState state;
   private String votedFor;
-  private final RaftLog log = new RaftLog();
+  private final RaftLog log;
+  private final RaftMetadataStore metadataStore;
   private long commitIndex = 0;
   private long lastApplied = 0;
 
   public RaftNode(String nodeId) {
+    this(nodeId, new InMemoryRaftMetadataStore(), new RaftLog());
+  }
+
+  /**
+   * Recovers currentTerm/votedFor from metadataStore and reconstructs log from whatever it already
+   * contains (an in-memory RaftLog for tests, or a DurableRaftLog backed by a RaftLogStore in
+   * production). A recovered node always starts as FOLLOWER - only currentTerm and votedFor are
+   * part of durable metadata, never state.
+   */
+  public RaftNode(String nodeId, RaftMetadataStore metadataStore, RaftLog log) {
     this.nodeId = nodeId;
-    this.currentTerm = 0;
+    this.metadataStore = metadataStore;
+    this.log = log;
+
+    RaftMetadataSnapshot snapshot = metadataStore.load();
+    this.currentTerm = snapshot.currentTerm();
+    this.votedFor = snapshot.votedFor();
     this.state = RaftState.FOLLOWER;
-    this.votedFor = null;
+  }
+
+  private void persistMetadata() {
+    metadataStore.save(currentTerm, votedFor);
   }
 
   public String getNodeId() {
@@ -88,6 +107,7 @@ public class RaftNode {
       currentTerm = newTerm;
       state = RaftState.FOLLOWER;
       votedFor = null;
+      persistMetadata();
     }
   }
 
@@ -100,6 +120,7 @@ public class RaftNode {
     currentTerm++;
     state = RaftState.CANDIDATE;
     votedFor = nodeId;
+    persistMetadata();
   }
 
   public void becomeLeader() {
@@ -139,6 +160,7 @@ public class RaftNode {
     }
 
     votedFor = request.candidateId();
+    persistMetadata();
     return new RequestVoteResponse(currentTerm, true);
   }
 
