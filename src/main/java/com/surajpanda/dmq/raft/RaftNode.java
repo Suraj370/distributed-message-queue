@@ -5,11 +5,13 @@ public class RaftNode {
   private final String nodeId;
   private long currentTerm;
   private RaftState state;
+  private String votedFor;
 
   public RaftNode(String nodeId) {
     this.nodeId = nodeId;
     this.currentTerm = 0;
     this.state = RaftState.FOLLOWER;
+    this.votedFor = null;
   }
 
   public String getNodeId() {
@@ -24,6 +26,10 @@ public class RaftNode {
     return state;
   }
 
+  public String getVotedFor() {
+    return votedFor;
+  }
+
   public void advanceTerm(long newTerm) {
 
     if (newTerm < currentTerm) {
@@ -34,6 +40,7 @@ public class RaftNode {
     if (newTerm > currentTerm) {
       currentTerm = newTerm;
       state = RaftState.FOLLOWER;
+      votedFor = null;
     }
   }
 
@@ -45,6 +52,7 @@ public class RaftNode {
 
     currentTerm++;
     state = RaftState.CANDIDATE;
+    votedFor = nodeId;
   }
 
   public void becomeLeader() {
@@ -64,5 +72,25 @@ public class RaftNode {
     }
 
     state = RaftState.FOLLOWER;
+  }
+
+  public RequestVoteResponse handleRequestVote(RequestVoteRequest request) {
+
+    if (request.term() < currentTerm) {
+      return new RequestVoteResponse(currentTerm, false);
+    }
+
+    if (request.term() > currentTerm) {
+      advanceTerm(request.term());
+    }
+
+    boolean canGrantVote = votedFor == null || votedFor.equals(request.candidateId());
+
+    if (!canGrantVote) {
+      return new RequestVoteResponse(currentTerm, false);
+    }
+
+    votedFor = request.candidateId();
+    return new RequestVoteResponse(currentTerm, true);
   }
 }
