@@ -93,4 +93,19 @@ public class RaftNode {
     votedFor = request.candidateId();
     return new RequestVoteResponse(currentTerm, true);
   }
+
+  public HeartbeatResponse handleHeartbeat(Heartbeat heartbeat) {
+
+    if (heartbeat.term() < currentTerm) {
+      return new HeartbeatResponse(currentTerm);
+    }
+
+    if (heartbeat.term() > currentTerm) {
+      advanceTerm(heartbeat.term());
+    } else if (state == RaftState.CANDIDATE) {
+      becomeFollower();
+    }
+
+    return new HeartbeatResponse(currentTerm);
+  }
 }
