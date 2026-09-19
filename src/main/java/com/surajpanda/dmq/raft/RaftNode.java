@@ -7,6 +7,8 @@ public class RaftNode {
   private RaftState state;
   private String votedFor;
   private final RaftLog log = new RaftLog();
+  private long commitIndex = 0;
+  private long lastApplied = 0;
 
   public RaftNode(String nodeId) {
     this.nodeId = nodeId;
@@ -33,6 +35,46 @@ public class RaftNode {
 
   public RaftLog getLog() {
     return log;
+  }
+
+  public long getCommitIndex() {
+    return commitIndex;
+  }
+
+  public long getLastApplied() {
+    return lastApplied;
+  }
+
+  /**
+   * Advances commitIndex to the given value, clamped to this node's own log length (a follower's
+   * commitIndex must never claim entries it hasn't actually stored) and never moving backwards. A
+   * candidateCommitIndex at or below the current commitIndex, or beyond the local log, is simply a
+   * no-op rather than an error - both a leader replaying an old leaderCommit value and a follower
+   * temporarily behind on its log are normal, expected situations, not caller mistakes.
+   */
+  public void advanceCommitIndex(long candidateCommitIndex) {
+    long bounded = Math.min(candidateCommitIndex, log.lastIndex());
+    if (bounded > commitIndex) {
+      commitIndex = bounded;
+    }
+  }
+
+  /**
+   * Marks entries up to and including index as applied to the state machine. Throws if asked to
+   * apply beyond commitIndex - lastApplied must only ever advance through already-committed
+   * entries, never ahead of them.
+   */
+  public void markApplied(long index) {
+    if (index > commitIndex) {
+      throw new IllegalArgumentException(
+          "Cannot mark applied beyond commitIndex: index="
+              + index
+              + ", commitIndex="
+              + commitIndex);
+    }
+    if (index > lastApplied) {
+      lastApplied = index;
+    }
   }
 
   public void advanceTerm(long newTerm) {
@@ -117,7 +159,7 @@ public class RaftNode {
   public AppendEntriesResponse handleAppendEntries(AppendEntriesRequest request) {
 
     if (request.term() < currentTerm) {
-      return new AppendEntriesResponse(currentTerm, false, log.lastIndex());
+      return new AppendEntriesResponse(currentTerm, false, false, log.lastIndex());
     }
 
     if (request.term() > currentTerm) {
@@ -126,11 +168,13 @@ public class RaftNode {
       becomeFollower();
     }
 
-    // leaderCommit is part of the protocol but intentionally unused until Commit 6 introduces a
-    // commit index and state-machine application.
     boolean matched =
         log.appendEntries(request.prevLogIndex(), request.prevLogTerm(), request.entries());
 
-    return new AppendEntriesResponse(currentTerm, matched, log.lastIndex());
+    if (matched) {
+      advanceCommitIndex(request.leaderCommit());
+    }
+
+    return new AppendEntriesResponse(currentTerm, true, matched, log.lastIndex());
   }
 }
