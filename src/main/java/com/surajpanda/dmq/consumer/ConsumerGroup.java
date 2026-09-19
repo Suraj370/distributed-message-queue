@@ -10,6 +10,8 @@ public class ConsumerGroup {
   private static final long INITIAL_COMMITTED_OFFSET = 0L;
 
   private final String groupId;
+  private final OffsetStore offsetStore;
+  private final Map<PartitionKey, Long> recoveredOffsets;
 
   private final Set<Consumer> members = ConcurrentHashMap.newKeySet();
 
@@ -18,7 +20,17 @@ public class ConsumerGroup {
   private final Map<Partition, Long> committedOffsets = new ConcurrentHashMap<>();
 
   public ConsumerGroup(String groupId) {
+    this(groupId, new InMemoryOffsetStore());
+  }
+
+  /**
+   * Recovers this group's durably committed offsets (if any) from offsetStore, so a restart resumes
+   * exactly where the group left off rather than replaying from the beginning.
+   */
+  public ConsumerGroup(String groupId, OffsetStore offsetStore) {
     this.groupId = groupId;
+    this.offsetStore = offsetStore;
+    this.recoveredOffsets = offsetStore.loadAll(groupId);
   }
 
   public String getGroupId() {
@@ -47,15 +59,33 @@ public class ConsumerGroup {
   }
 
   public long getCommittedOffset(Partition partition) {
-    return committedOffsets.getOrDefault(partition, INITIAL_COMMITTED_OFFSET);
+    return committedOffsets.computeIfAbsent(
+        partition,
+        p -> recoveredOffsets.getOrDefault(PartitionKey.of(p), INITIAL_COMMITTED_OFFSET));
   }
 
+  /**
+   * Commits the offset up to which this group has successfully finished processing for the given
+   * partition. Deliberately a separate call from fetching/polling a message - see
+   * Consumer.fetchNext(): reading a message never advances the offset by itself, only an explicit
+   * commitOffset() does. This is what makes at-least-once semantics possible: a crash between fetch
+   * and commit leaves the offset unmoved, so the same message is fetched again.
+   */
   public void commitOffset(Partition partition, long offset) {
 
     if (offset < 0) {
       throw new IllegalArgumentException("Committed offset must not be negative: " + offset);
     }
 
-    committedOffsets.put(partition, offset);
+    committedOffsets.merge(partition, offset, Math::max);
+    offsetStore.save(groupId, PartitionKey.of(partition), getCommittedOffset(partition));
+  }
+
+  /**
+   * How many messages this group has not yet committed past, for the given partition -
+   * consumer-group lag, exposed for future observability/metrics.
+   */
+  public long lag(Partition partition) {
+    return partition.nextOffset() - getCommittedOffset(partition);
   }
 }
