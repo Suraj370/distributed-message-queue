@@ -1,0 +1,18 @@
+# Scrapes the existing multi-broker Docker Compose cluster (see ../../docker-compose.yml).
+# Targets are Docker Compose service names on the shared "dmq" network, resolved via Docker's
+# built-in DNS - never localhost/127.0.0.1, which would only ever reach the Prometheus container
+# itself.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: dmq-brokers
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - broker-1:8080
+          - broker-2:8080
+          - broker-3:8080
+        labels:
+          cluster: dmq

@@ -1,0 +1,123 @@
+{
+  "title": "DMQ Cluster",
+  "uid": "dmq-cluster",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "5s",
+  "tags": ["dmq"],
+  "panels": [
+    { "type": "row", "title": "Publish / Consume / Errors", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 100 },
+
+    { "id": 1, "type": "timeseries", "title": "Publish rate",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (rate(dmq_messages_published_total[1m]))", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 2, "type": "timeseries", "title": "Consume (fetch) rate",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (rate(dmq_consumer_fetch_total[1m]))", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 3, "type": "timeseries", "title": "Append latency (avg, WAL fsync included)",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (rate(dmq_wal_append_latency_seconds_sum[1m])) / sum by (broker) (rate(dmq_wal_append_latency_seconds_count[1m]))", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 4, "type": "timeseries", "title": "Error rate (publish + WAL)",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (broker) (rate(dmq_publish_errors_total[1m]))", "legendFormat": "{{broker}} publish", "refId": "A" },
+        { "expr": "sum by (broker) (rate(dmq_wal_errors_total[1m]))", "legendFormat": "{{broker}} wal", "refId": "B" }
+      ] },
+
+    { "type": "row", "title": "WAL / Replication / Consumer Lag / Commit Index", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "id": 101 },
+
+    { "id": 5, "type": "timeseries", "title": "WAL append activity",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "wps" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (rate(dmq_wal_append_total[1m]))", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 6, "type": "timeseries", "title": "Replication activity to peers",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker, peer, outcome) (rate(dmq_replication_requests_total[1m]))", "legendFormat": "{{broker}} -> {{peer}} ({{outcome}})", "refId": "A" } ] },
+
+    { "id": 7, "type": "timeseries", "title": "Replication latency (avg, AppendEntries round trip)",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker, peer) (rate(dmq_replication_latency_seconds_sum[1m])) / sum by (broker, peer) (rate(dmq_replication_latency_seconds_count[1m]))", "legendFormat": "{{broker}} -> {{peer}}", "refId": "A" } ] },
+
+    { "id": 8, "type": "timeseries", "title": "Consumer lag",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "expr": "max by (broker, consumer_group, topic, partition) (dmq_consumer_lag)", "legendFormat": "{{broker}} {{consumer_group}} {{topic}}-{{partition}}", "refId": "A" } ] },
+
+    { "id": 9, "type": "timeseries", "title": "Raft commit index / last applied index",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "dmq_raft_commit_index", "legendFormat": "{{broker}} commit index", "refId": "A" },
+        { "expr": "dmq_raft_last_applied_index", "legendFormat": "{{broker}} last applied", "refId": "B" }
+      ] },
+
+    { "type": "row", "title": "Raft / Cluster", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }, "id": 102 },
+
+    { "id": 10, "type": "state-timeline", "title": "Broker Raft state (leader / follower / candidate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [ { "expr": "dmq_raft_state == 1", "legendFormat": "{{broker}}: {{raft_state}}", "refId": "A" } ] },
+
+    { "id": 11, "type": "timeseries", "title": "Current Raft term",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "expr": "dmq_raft_term", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 12, "type": "stat", "title": "Current leader",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "textMode": "name", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "dmq_raft_state{raft_state=\"LEADER\"} == 1", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "type": "row", "title": "System (JVM / CPU)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }, "id": 103 },
+
+    { "id": 13, "type": "timeseries", "title": "Process CPU usage",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [ { "expr": "process_cpu_usage", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 14, "type": "timeseries", "title": "JVM heap used",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (jvm_memory_used_bytes{area=\"heap\"})", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 15, "type": "timeseries", "title": "GC pause time",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [ { "expr": "sum by (broker) (rate(jvm_gc_pause_seconds_sum[1m]))", "legendFormat": "{{broker}}", "refId": "A" } ] },
+
+    { "id": 16, "type": "timeseries", "title": "Live JVM threads",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "expr": "jvm_threads_live_threads", "legendFormat": "{{broker}}", "refId": "A" } ] }
+  ]
+}

@@ -6,6 +6,9 @@ import com.surajpanda.dmq.raft.LogEntry;
 import com.surajpanda.dmq.raft.RaftStateMachine;
 import com.surajpanda.dmq.topic.Topic;
 import com.surajpanda.dmq.topic.TopicManager;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Map;
@@ -31,14 +34,28 @@ public class RaftQueueStateMachine implements RaftStateMachine {
 
   private final TopicManager topicManager;
   private final LastAppliedStore lastAppliedStore;
+  private final MeterRegistry meterRegistry;
   private final Map<Long, Message> appliedMessages = new ConcurrentHashMap<>();
 
   private long lastAppliedIndex;
 
   public RaftQueueStateMachine(TopicManager topicManager, LastAppliedStore lastAppliedStore) {
+    this(topicManager, lastAppliedStore, new SimpleMeterRegistry());
+  }
+
+  /**
+   * Same as the two-arg constructor, but records WAL append activity/latency/errors into
+   * meterRegistry (see {@link #apply(LogEntry)}). The two-arg constructor defaults to a throwaway
+   * {@link SimpleMeterRegistry} so every existing caller (tests included) keeps working exactly as
+   * before; only the real Spring-wired broker (see RaftConfiguration) needs the metrics to actually
+   * go anywhere.
+   */
+  public RaftQueueStateMachine(
+      TopicManager topicManager, LastAppliedStore lastAppliedStore, MeterRegistry meterRegistry) {
     this.topicManager = topicManager;
     this.lastAppliedStore = lastAppliedStore;
     this.lastAppliedIndex = lastAppliedStore.load();
+    this.meterRegistry = meterRegistry;
   }
 
   @Override
@@ -66,10 +83,33 @@ public class RaftQueueStateMachine implements RaftStateMachine {
         // Not a fast-path skip via lastAppliedIndex, but not necessarily new either: a previous
         // run may have written the WAL entry and then crashed before persisting lastAppliedIndex.
         // The WAL tag is what actually prevents the duplicate in that case.
+        Timer.Sample appendTiming = Timer.start(meterRegistry);
         Message applied = partition.append(command.key(), command.payload(), entry.index());
+        appendTiming.stop(
+            Timer.builder("dmq_wal_append_latency_seconds")
+                .description("Latency of one durable Partition.append() call, WAL fsync included")
+                .tag("topic", command.topic())
+                .tag("partition", String.valueOf(command.partition()))
+                .register(meterRegistry));
+        meterRegistry
+            .counter(
+                "dmq_wal_append_total",
+                "topic",
+                command.topic(),
+                "partition",
+                String.valueOf(command.partition()))
+            .increment();
         appliedMessages.put(entry.index(), applied);
       }
     } catch (IOException exception) {
+      meterRegistry
+          .counter(
+              "dmq_wal_errors_total",
+              "topic",
+              command.topic(),
+              "partition",
+              String.valueOf(command.partition()))
+          .increment();
       throw new UncheckedIOException(
           "Failed to apply committed PublishCommand at index " + entry.index(), exception);
     }

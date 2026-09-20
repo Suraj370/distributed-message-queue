@@ -1,0 +1,129 @@
+# Local demonstration stack only - not a production deployment. Brings up the existing 3-broker
+# Raft cluster plus Prometheus and Grafana, all on Docker Compose's default network so services
+# reach each other by service name (e.g. "broker-2:8080"), never "localhost" or a host-mapped port.
+# Host ports (8080-8082, 9090, 3000) are only for a human on the host machine to reach things.
+#
+# Usage: docker compose up --build
+# Grafana:    http://localhost:3000  (anonymous admin access, local demo only)
+# Prometheus: http://localhost:9090
+# Brokers:    http://localhost:8080 / 8081 / 8082
+
+services:
+  broker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BROKER_ID: broker-1
+      BROKER_HOST: broker-1
+      BROKER_PORT: "8080"
+      BROKER_DATA_DIRECTORY: /data/broker-1
+      SERVER_PORT: "8080"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      CLUSTER_BROKERS_0_ID: broker-1
+      CLUSTER_BROKERS_0_HOST: broker-1
+      CLUSTER_BROKERS_0_PORT: "8080"
+      CLUSTER_BROKERS_1_ID: broker-2
+      CLUSTER_BROKERS_1_HOST: broker-2
+      CLUSTER_BROKERS_1_PORT: "8080"
+      CLUSTER_BROKERS_2_ID: broker-3
+      CLUSTER_BROKERS_2_HOST: broker-3
+      CLUSTER_BROKERS_2_PORT: "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - broker-1-data:/data
+    networks:
+      - dmq
+
+  broker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BROKER_ID: broker-2
+      BROKER_HOST: broker-2
+      BROKER_PORT: "8080"
+      BROKER_DATA_DIRECTORY: /data/broker-2
+      SERVER_PORT: "8080"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      CLUSTER_BROKERS_0_ID: broker-1
+      CLUSTER_BROKERS_0_HOST: broker-1
+      CLUSTER_BROKERS_0_PORT: "8080"
+      CLUSTER_BROKERS_1_ID: broker-2
+      CLUSTER_BROKERS_1_HOST: broker-2
+      CLUSTER_BROKERS_1_PORT: "8080"
+      CLUSTER_BROKERS_2_ID: broker-3
+      CLUSTER_BROKERS_2_HOST: broker-3
+      CLUSTER_BROKERS_2_PORT: "8080"
+    ports:
+      - "8081:8080"
+    volumes:
+      - broker-2-data:/data
+    networks:
+      - dmq
+
+  broker-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BROKER_ID: broker-3
+      BROKER_HOST: broker-3
+      BROKER_PORT: "8080"
+      BROKER_DATA_DIRECTORY: /data/broker-3
+      SERVER_PORT: "8080"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      CLUSTER_BROKERS_0_ID: broker-1
+      CLUSTER_BROKERS_0_HOST: broker-1
+      CLUSTER_BROKERS_0_PORT: "8080"
+      CLUSTER_BROKERS_1_ID: broker-2
+      CLUSTER_BROKERS_1_HOST: broker-2
+      CLUSTER_BROKERS_1_PORT: "8080"
+      CLUSTER_BROKERS_2_ID: broker-3
+      CLUSTER_BROKERS_2_HOST: broker-3
+      CLUSTER_BROKERS_2_PORT: "8080"
+    ports:
+      - "8082:8080"
+    volumes:
+      - broker-3-data:/data
+    networks:
+      - dmq
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - dmq
+    depends_on:
+      - broker-1
+      - broker-2
+      - broker-3
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      # Anonymous admin access is a local-demo convenience only - never appropriate outside it.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - dmq
+    depends_on:
+      - prometheus
+
+networks:
+  dmq:
+
+volumes:
+  broker-1-data:
+  broker-2-data:
+  broker-3-data:

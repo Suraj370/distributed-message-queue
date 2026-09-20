@@ -308,6 +308,99 @@ WAL/Raft-log/term-vote/consumer-offset recovery-from-disk path (the container's 
 untouched by stop/start) - a separate test recreating the container against an explicit mounted
 volume was judged unnecessary additional complexity for this milestone.
 
+## Observability
+
+Micrometer (already pulled in by `spring-boot-starter-actuator`) plus
+`io.micrometer:micrometer-registry-prometheus` exposes every broker's metrics in Prometheus format
+at `/actuator/prometheus`. A small local stack - 3 brokers, Prometheus, Grafana, all on one Docker
+Compose network - scrapes them and renders one Grafana dashboard.
+
+**JMH vs. Prometheus/Grafana** - these answer different questions and are not a replacement for
+each other: JMH (`src/jmh`, `./gradlew jmh`) is *controlled performance benchmarking* - an isolated
+JVM, no network, no Raft, measuring one operation (e.g. `Partition.append()`) in a repeatable
+environment. Prometheus/Grafana is *runtime system observability* - the real multi-broker cluster,
+under real Raft/replication/HTTP traffic, over time. JMH tells you what one operation costs in
+isolation; the dashboard tells you what the whole system is actually doing right now.
+
+### Metrics added
+
+All custom meters carry a `broker` tag (applied cluster-wide via `management.metrics.tags.broker`
+in `application.yml`, so it also covers every JVM/HTTP metric Micrometer already provides, not just
+the custom ones below).
+
+| Area | Meters |
+|---|---|
+| Publish | `dmq_messages_published_total`, `dmq_publish_errors_total{reason}`, `dmq_publish_latency_seconds` (`Broker.publish()`, end-to-end including the Raft round trip) |
+| WAL / persistence | `dmq_wal_append_total`, `dmq_wal_append_latency_seconds` (the real, `fsync`'d `Partition.append()`, timed from `RaftQueueStateMachine.apply()` - the only call site for a Raft-committed publish, run on the leader and every follower), `dmq_wal_errors_total` |
+| Raft / replication | `dmq_raft_term`, `dmq_raft_commit_index`, `dmq_raft_last_applied_index`, `dmq_raft_state{raft_state}` (1/0 per state - the standard Prometheus pattern for an enum value), `dmq_replication_requests_total{peer,outcome}`, `dmq_replication_failures_total{peer}`, `dmq_replication_latency_seconds{peer}` (one leader-to-peer `AppendEntries` round trip) |
+| Consumers | `dmq_consumer_fetch_total`, `dmq_consumer_commits_total`, `dmq_consumer_lag` (gauge, `Partition.nextOffset() - committedOffset`), `dmq_consumer_committed_offset` (gauge) - all tagged `consumer_group`, `topic`, `partition` |
+| JVM / system / HTTP | Whatever Micrometer/Actuator already provides unmodified - `jvm_memory_used_bytes`, `jvm_gc_pause_seconds`, `jvm_threads_live_threads`, `process_cpu_usage`, `http_server_requests_seconds` (count/sum/max, tagged by URI/status/outcome) |
+
+Every instrumented class keeps its original constructor unchanged and gained a new
+`MeterRegistry`-accepting overload instead (defaulting to a throwaway `SimpleMeterRegistry` when
+omitted) - existing tests that construct `Broker`, `RaftQueueStateMachine`, `RaftLogReplicator`, or
+`ConsumerController` directly needed no changes at all; only the real Spring-wired beans (see
+`RaftConfiguration`/`BrokerConfiguration`) pass the actual registry. `RaftNode` itself was not
+touched - its Raft-state gauges are registered from a `MeterBinder` bean in `RaftConfiguration`
+that only reads `RaftNode`'s existing getters.
+
+### Running the stack
+
+```
+docker compose up --build
+```
+
+- Grafana: <http://localhost:3000> (anonymous admin access - local demo only, never appropriate
+  outside it)
+- Prometheus: <http://localhost:9090>
+- Brokers: <http://localhost:8080> / `8081` / `8082`
+
+The "DMQ Cluster" dashboard is provisioned automatically (`observability/grafana/provisioning`,
+`observability/grafana/dashboards/dmq-cluster.json`) - open Grafana and it's already there, no
+manual import. Prometheus scrapes `broker-1:8080` / `broker-2:8080` / `broker-3:8080` (Docker
+service names on the Compose network - see `observability/prometheus/prometheus.yml`; never
+`localhost`, which would only resolve to the Prometheus container itself).
+
+**Before publishing**, create the same topic on all three brokers - topic creation is not yet
+Raft-replicated (see Known limitations below), so a topic that only exists on the leader makes
+every follower's replication fail with "unknown topic" once it tries to apply the committed
+publish (a real, honestly-surfaced `dmq_replication_failures_total` increase, not a bug in the
+metrics):
+
+```
+for p in 8080 8081 8082; do curl -X POST "http://localhost:$p/api/v1/topics?name=demo&partitions=1"; done
+curl -X POST "http://localhost:8080/api/v1/messages?topic=demo&key=k1&payload=hello"
+curl -X POST "http://localhost:8080/api/v1/consumer-groups/g1/fetch?topic=demo&partition=0"
+curl -X POST "http://localhost:8080/api/v1/consumer-groups/g1/commit?topic=demo&partition=0&offset=1"
+```
+
+### What the dashboard demonstrates
+
+- **Normal traffic / increased producer traffic** - Publish rate and Append latency (top row)
+  respond immediately to publish volume.
+- **Replication** - Replication activity/latency (middle row) shows every leader-to-peer
+  `AppendEntries` round trip; WAL activity shows the same committed writes landing on followers a
+  tick later.
+- **Consumer lag** - `dmq_consumer_lag` rises the moment a publish outpaces a consumer group's
+  commits, and falls back to 0 on the next commit.
+- **Broker failure/restart** - stopping a broker container drops it out of Prometheus's `up` set
+  and its `dmq_raft_state` series stops updating; the remaining brokers' Raft commit/last-applied
+  indices keep advancing normally if a majority survives.
+- **Raft leader change** - the "Broker Raft state" state-timeline panel and "Current leader" stat
+  panel both flip to the newly elected broker the moment `dmq_raft_state{raft_state="LEADER"}`
+  changes broker, with `dmq_raft_term` advancing alongside it.
+
+### Known Windows/Docker limitation observed in this environment
+
+Pulling the `prom/prometheus` and `grafana/grafana` images from Docker Hub was unreliable in the
+sandboxed environment this was built in - `docker pull` repeatedly failed with a connection reset
+against `auth.docker.io` specifically (`registry-1.docker.io` itself was reachable via plain
+`curl`), succeeding only after several retries. This looks like sandbox-specific network
+instability, not a problem with the Compose file or app configuration - the 3 broker images (built
+locally from already-cached base images) started on the first attempt every time. If `docker
+compose up` seems to hang on `prometheus`/`grafana` pulling, retry it; on a normal developer
+machine with unrestricted Docker Hub access this is not expected to occur.
+
 ### Known limitations / next-milestone concerns
 
 - **No PreVote extension.** A restarted node's own election timeout can fire before it hears from
@@ -325,9 +418,8 @@ volume was judged unnecessary additional complexity for this milestone.
 - **Topic creation is not yet Raft-replicated** - only `PublishCommand`s are. Every node in a real
   multi-broker deployment needs identical topic configuration out of band until topic creation is
   proposed through Raft as well.
-- Observability is limited to plain getters plus the new read-only status endpoint - no metrics
-  endpoint or dashboard yet.
 - **Testcontainers persistent-volume recovery is deferred** (see above) - covered indirectly by the
   same-container restart tests, not by a dedicated named-volume test.
-- **No performance testing in this milestone** - correctness and realistic distributed integration
-  testing only; benchmarking is explicitly a separate, later milestone.
+- **No distributed tracing, alerting, or long-term metrics storage.** The Observability milestone
+  covers metrics + one dashboard only, deliberately - see its own section above for what it does
+  and does not cover.

@@ -25,6 +25,9 @@ import com.surajpanda.dmq.raft.transport.HttpHeartbeatConnection;
 import com.surajpanda.dmq.raft.transport.HttpRaftPeerConnection;
 import com.surajpanda.dmq.raft.transport.RaftProperties;
 import com.surajpanda.dmq.topic.TopicManager;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -130,8 +133,10 @@ public class RaftConfiguration {
   public RaftLogReplicator raftLogReplicator(
       RaftNode raftNode,
       List<AppendEntriesPeer> raftAppendPeers,
-      ClusterProperties clusterProperties) {
-    return new RaftLogReplicator(raftNode, raftAppendPeers, clusterProperties.brokers().size());
+      ClusterProperties clusterProperties,
+      MeterRegistry meterRegistry) {
+    return new RaftLogReplicator(
+        raftNode, raftAppendPeers, clusterProperties.brokers().size(), meterRegistry);
   }
 
   @Bean
@@ -197,12 +202,41 @@ public class RaftConfiguration {
     return scheduler;
   }
 
+  /**
+   * Registers this broker's Raft state as Micrometer gauges - term, commit index, last-applied
+   * index, and one gauge per {@link RaftState} value (1 for whichever state this node is currently
+   * in, 0 for the others - the standard Prometheus pattern for an enum-like value, since a single
+   * gauge can't hold a state name). Purely observational: it only reads RaftNode's existing getters
+   * via a Spring Boot {@link MeterBinder} bean, so RaftNode itself needed no changes at all.
+   */
+  @Bean
+  public MeterBinder raftStateMetrics(RaftNode raftNode, BrokerProperties brokerProperties) {
+    return (MeterRegistry registry) -> {
+      Gauge.builder("dmq_raft_term", raftNode, RaftNode::getCurrentTerm)
+          .description("Current Raft term of this broker")
+          .register(registry);
+      Gauge.builder("dmq_raft_commit_index", raftNode, RaftNode::getCommitIndex)
+          .description("Highest Raft log index known to be committed on this broker")
+          .register(registry);
+      Gauge.builder("dmq_raft_last_applied_index", raftNode, RaftNode::getLastApplied)
+          .description("Highest Raft log index applied to queue state on this broker")
+          .register(registry);
+      for (RaftState state : RaftState.values()) {
+        Gauge.builder("dmq_raft_state", raftNode, node -> node.getState() == state ? 1 : 0)
+            .description("1 if this broker is currently in the tagged raft_state, else 0")
+            .tag("raft_state", state.name())
+            .register(registry);
+      }
+    };
+  }
+
   @Bean
   public RaftQueueStateMachine raftQueueStateMachine(
-      TopicManager topicManager, BrokerProperties brokerProperties) {
+      TopicManager topicManager, BrokerProperties brokerProperties, MeterRegistry meterRegistry) {
     Path lastAppliedFile =
         Path.of(brokerProperties.dataDirectory()).resolve("raft").resolve("last-applied");
-    return new RaftQueueStateMachine(topicManager, new FileLastAppliedStore(lastAppliedFile));
+    return new RaftQueueStateMachine(
+        topicManager, new FileLastAppliedStore(lastAppliedFile), meterRegistry);
   }
 
   @Bean

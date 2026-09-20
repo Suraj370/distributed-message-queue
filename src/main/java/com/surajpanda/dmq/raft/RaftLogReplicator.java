@@ -1,5 +1,8 @@
 package com.surajpanda.dmq.raft;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,10 +43,26 @@ public class RaftLogReplicator {
   private final RaftNode localNode;
   private final List<AppendEntriesPeer> peers;
   private final int clusterSize;
+  private final MeterRegistry meterRegistry;
   private final Map<String, Long> nextIndex = new HashMap<>();
   private final Map<String, Long> matchIndex = new HashMap<>();
 
   public RaftLogReplicator(RaftNode localNode, List<AppendEntriesPeer> peers, int clusterSize) {
+    this(localNode, peers, clusterSize, new SimpleMeterRegistry());
+  }
+
+  /**
+   * Same as the three-arg constructor, but records replication activity/latency/failures into
+   * meterRegistry (see {@link #replicateToPeer}). The three-arg constructor defaults to a throwaway
+   * {@link SimpleMeterRegistry} so every existing caller (tests included) keeps working exactly as
+   * before; only the real Spring-wired broker (see RaftConfiguration) needs the metrics to actually
+   * go anywhere.
+   */
+  public RaftLogReplicator(
+      RaftNode localNode,
+      List<AppendEntriesPeer> peers,
+      int clusterSize,
+      MeterRegistry meterRegistry) {
 
     if (clusterSize < peers.size() + 1) {
       throw new IllegalArgumentException(
@@ -56,6 +75,7 @@ public class RaftLogReplicator {
     this.localNode = localNode;
     this.peers = List.copyOf(peers);
     this.clusterSize = clusterSize;
+    this.meterRegistry = meterRegistry;
   }
 
   public synchronized void initializeForNewLeader() {
@@ -113,7 +133,24 @@ public class RaftLogReplicator {
               entries,
               leaderCommit);
 
+      Timer.Sample replicationTiming = Timer.start(meterRegistry);
       AppendEntriesResponse response = peer.connection().sendAppendEntries(request);
+      replicationTiming.stop(
+          Timer.builder("dmq_replication_latency_seconds")
+              .description("Latency of one leader-to-peer AppendEntries round trip")
+              .tag("peer", peer.nodeId())
+              .register(meterRegistry));
+      meterRegistry
+          .counter(
+              "dmq_replication_requests_total",
+              "peer",
+              peer.nodeId(),
+              "outcome",
+              response.success() ? "success" : "failure")
+          .increment();
+      if (!response.success()) {
+        meterRegistry.counter("dmq_replication_failures_total", "peer", peer.nodeId()).increment();
+      }
 
       if (response.term() > localNode.getCurrentTerm()) {
         localNode.advanceTerm(response.term());

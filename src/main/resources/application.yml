@@ -31,3 +31,15 @@ raft:
   transport:
     connect-timeout-millis: 1000
     read-timeout-millis: 2000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    tags:
+      # Applied to every meter, including the JVM/HTTP ones Micrometer already provides - without
+      # it, Prometheus can't tell which broker a given time series came from once all three are
+      # scraped into one cluster-wide dashboard.
+      broker: ${broker.id}
