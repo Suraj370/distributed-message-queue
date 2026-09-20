@@ -22,4 +22,14 @@ public class MessageController {
 
     return ResponseEntity.ok(message);
   }
+
+  /** Non-destructive read at a specific offset - see Broker.read(). 404 if not (yet) present. */
+  @GetMapping
+  public ResponseEntity<Message> read(
+      @RequestParam String topic, @RequestParam int partition, @RequestParam long offset) {
+    return broker
+        .read(topic, partition, offset)
+        .map(ResponseEntity::ok)
+        .orElseGet(() -> ResponseEntity.notFound().build());
+  }
 }
