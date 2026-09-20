@@ -22,3 +22,12 @@ cluster:
     - id: broker-3
       host: localhost
       port: 8082
+
+raft:
+  election:
+    min-timeout-millis: 1500
+    max-timeout-millis: 3000
+  heartbeat-interval-millis: 300
+  transport:
+    connect-timeout-millis: 1000
+    read-timeout-millis: 2000
