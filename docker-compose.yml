@@ -13,6 +13,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       BROKER_ID: broker-1
       BROKER_HOST: broker-1
@@ -40,6 +41,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       BROKER_ID: broker-2
       BROKER_HOST: broker-2
@@ -67,6 +69,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       BROKER_ID: broker-3
       BROKER_HOST: broker-3
@@ -92,6 +95,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.55.1
+    restart: unless-stopped
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -99,12 +103,16 @@ services:
     networks:
       - dmq
     depends_on:
-      - broker-1
-      - broker-2
-      - broker-3
+      broker-1:
+        condition: service_healthy
+      broker-2:
+        condition: service_healthy
+      broker-3:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana:11.3.1
+    restart: unless-stopped
     environment:
       # Anonymous admin access is a local-demo convenience only - never appropriate outside it.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
