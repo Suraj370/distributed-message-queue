@@ -80,8 +80,15 @@ tasks.named("check") {
 // me.champeau.jmh plugin with main's classes on its compile classpath. They are opt-in via
 // `./gradlew jmh` - deliberately not part of `check`/`build`, since they're slow, noisy under
 // shared-CI-machine contention, and answer a different question ("how fast") than correctness.
+//
+// `includes` is the plugin's own supported filter - it is passed straight through to JMH, which
+// matches each pattern as a regex `find()` against every benchmark's fully-qualified name (e.g.
+// "com.surajpanda.dmq.benchmarks.PartitionAppendBenchmark.appendMessage"). `-PjmhInclude=<regex>`
+// sets it for a single run; omitting the property keeps the default ".*" (every benchmark), so
+// `./gradlew jmh` on its own still runs the full suite.
 jmh {
 	jmhVersion.set("1.37")
+	includes.set(listOf((project.findProperty("jmhInclude") as String?) ?: ".*"))
 }
 
 spotless {
