@@ -68,6 +68,63 @@ class RaftNodeSchedulerTest {
     assertTrue(!schedulerThreadIsRunning());
   }
 
+  @Test
+  void onTickHookRunsAfterElectionAndHeartbeatBookkeepingOnEveryTick() throws InterruptedException {
+    RaftNode leader = new RaftNode("broker-1");
+    leader.becomeCandidate();
+    leader.becomeLeader();
+
+    HeartbeatBroadcaster broadcaster = new HeartbeatBroadcaster(leader, List.of());
+    RaftElectionDriver driver =
+        new RaftElectionDriver(
+            leader, new ElectionCoordinator(leader, List.of(), 1), electionTimeout(), 0);
+
+    CountDownLatch ranThreeTimes = new CountDownLatch(3);
+    RaftNodeScheduler scheduler =
+        new RaftNodeScheduler(
+            driver, broadcaster, 5_000, 20, Clock.systemUTC(), ranThreeTimes::countDown);
+
+    try {
+      scheduler.start();
+      assertTrue(ranThreeTimes.await(5, TimeUnit.SECONDS));
+    } finally {
+      scheduler.close();
+    }
+  }
+
+  @Test
+  void onTickHookExceptionsAreSwallowedJustLikeOtherTickFailures() throws InterruptedException {
+    RaftNode leader = new RaftNode("broker-1");
+    leader.becomeCandidate();
+    leader.becomeLeader();
+
+    HeartbeatBroadcaster broadcaster = new HeartbeatBroadcaster(leader, List.of());
+    RaftElectionDriver driver =
+        new RaftElectionDriver(
+            leader, new ElectionCoordinator(leader, List.of(), 1), electionTimeout(), 0);
+
+    CountDownLatch ranAfterThrowing = new CountDownLatch(3);
+    RaftNodeScheduler scheduler =
+        new RaftNodeScheduler(
+            driver,
+            broadcaster,
+            5_000,
+            20,
+            Clock.systemUTC(),
+            () -> {
+              ranAfterThrowing.countDown();
+              throw new IllegalStateException("simulated transient replication failure");
+            });
+
+    try {
+      scheduler.start();
+      // If a throwing onTick killed the scheduler loop, this would never reach zero.
+      assertTrue(ranAfterThrowing.await(5, TimeUnit.SECONDS));
+    } finally {
+      scheduler.close();
+    }
+  }
+
   private static boolean schedulerThreadIsRunning() {
     return Thread.getAllStackTraces().keySet().stream()
         .anyMatch(thread -> "raft-node-scheduler".equals(thread.getName()) && thread.isAlive());

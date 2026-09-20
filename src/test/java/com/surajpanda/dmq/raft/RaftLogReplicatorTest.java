@@ -174,4 +174,59 @@ class RaftLogReplicatorTest {
     assertEquals(3, replicator.getMatchIndex("broker-2"));
     assertEquals(4, replicator.getNextIndex("broker-2"));
   }
+
+  @Test
+  void repeatedReplicateCallsCatchUpABehindFollowerWithoutAnyNewEntryBeingAppended() {
+    // Models what RaftNodeScheduler's periodic onTick hook now does: call replicate() on a timer,
+    // not only when a new client publish happens. A follower that fell behind while unreachable
+    // must catch up purely from these repeated calls, with no new leader.getLog().appendCommand()
+    // happening after it comes back.
+    RaftNode leader = new RaftNode("leader");
+    leader.becomeCandidate();
+    leader.becomeLeader();
+
+    RaftNode followerB = new RaftNode("follower-b");
+    RaftNode followerC = new RaftNode("follower-c");
+
+    java.util.concurrent.atomic.AtomicBoolean bReachable =
+        new java.util.concurrent.atomic.AtomicBoolean(true);
+    AppendEntriesConnection toB =
+        request ->
+            bReachable.get()
+                ? new InProcessAppendEntriesConnection(followerB).sendAppendEntries(request)
+                : new AppendEntriesResponse(request.term(), false, false, 0);
+    AppendEntriesConnection toC = new InProcessAppendEntriesConnection(followerC);
+
+    List<AppendEntriesPeer> peers =
+        List.of(new AppendEntriesPeer("follower-b", toB), new AppendEntriesPeer("follower-c", toC));
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 3);
+    replicator.initializeForNewLeader();
+
+    // Entries 1-2 commit normally while everyone is up (two rounds, as a real propose() call does).
+    leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-1");
+    leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-2");
+    replicator.replicate(leader.getCommitIndex());
+    replicator.replicate(leader.getCommitIndex());
+    assertEquals(2, followerB.getCommitIndex());
+
+    // follower-b goes down; the leader keeps committing via majority with follower-c alone -
+    // an unreachable follower must not block replication/commit to the healthy peer.
+    bReachable.set(false);
+    leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-3");
+    leader.getLog().appendCommand(leader.getCurrentTerm(), "cmd-4");
+    replicator.replicate(leader.getCommitIndex());
+    replicator.replicate(leader.getCommitIndex());
+    assertEquals(4, leader.getCommitIndex());
+    assertEquals(4, followerC.getCommitIndex());
+    assertEquals(2, followerB.getLog().lastIndex()); // still behind
+
+    // follower-b comes back - no further appendCommand() calls happen; only periodic
+    // (heartbeat-driven) replicate() calls, exactly like the scheduler's onTick hook.
+    bReachable.set(true);
+    replicator.replicate(leader.getCommitIndex());
+
+    assertEquals(leader.getLog().lastIndex(), followerB.getLog().lastIndex());
+    assertEquals(4, followerB.getLog().lastIndex());
+    assertEquals(4, followerB.getCommitIndex());
+  }
 }

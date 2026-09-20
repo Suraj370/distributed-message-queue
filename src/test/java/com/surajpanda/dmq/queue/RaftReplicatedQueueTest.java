@@ -14,7 +14,13 @@ import com.surajpanda.dmq.raft.RaftLogReplicator;
 import com.surajpanda.dmq.raft.RaftNode;
 import com.surajpanda.dmq.topic.TopicManager;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -163,6 +169,109 @@ class RaftReplicatedQueueTest {
     assertEquals(
         "payload-1",
         followerTopics.getTopic("orders").getPartition(0).get(0).orElseThrow().payload());
+  }
+
+  @Test
+  void followerConvergesAfterASingleProposeCallWithoutAnyExtraReplicationRound() throws Exception {
+    TopicManager leaderTopics = new TopicManager(tempDir.resolve("leader"));
+    leaderTopics.createTopic("orders", 1);
+    TopicManager followerTopics = new TopicManager(tempDir.resolve("follower"));
+    followerTopics.createTopic("orders", 1);
+
+    RaftNode leader = new RaftNode("broker-1");
+    leader.becomeCandidate();
+    leader.becomeLeader();
+
+    RaftNode followerNode = new RaftNode("broker-2");
+    RaftQueueStateMachine followerStateMachine =
+        new RaftQueueStateMachine(followerTopics, new InMemoryLastAppliedStore());
+    RaftLogApplier followerApplier = new RaftLogApplier(followerNode, followerStateMachine);
+
+    // Mirrors what the real /internal/raft/append-entries controller does: handle the request,
+    // then immediately drive this follower's own applier - no test-only manual extra round.
+    AppendEntriesConnection followerConnection =
+        request -> {
+          AppendEntriesResponse response =
+              new InProcessAppendEntriesConnection(followerNode).sendAppendEntries(request);
+          followerApplier.applyCommitted();
+          return response;
+        };
+
+    List<AppendEntriesPeer> peers = List.of(new AppendEntriesPeer("broker-2", followerConnection));
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
+    replicator.initializeForNewLeader();
+
+    RaftQueueStateMachine leaderStateMachine =
+        new RaftQueueStateMachine(leaderTopics, new InMemoryLastAppliedStore());
+    RaftLogApplier leaderApplier = new RaftLogApplier(leader, leaderStateMachine);
+    RaftReplicatedQueue queue =
+        new RaftReplicatedQueue(leader, replicator, leaderApplier, leaderStateMachine);
+
+    queue.propose(new PublishCommand("orders", 0, "key-1", "payload-1"));
+
+    // No extra manual replicate() round here - propose() alone must be enough for the follower to
+    // learn the commitIndex and apply the entry.
+    assertEquals(
+        "payload-1",
+        followerTopics.getTopic("orders").getPartition(0).get(0).orElseThrow().payload());
+  }
+
+  @Test
+  void concurrentProposeAndStepDownNeverLeaksARawIllegalStateException() throws Exception {
+    // A regression guard for a real race found via the multi-broker integration tests: propose()'s
+    // own leader check and replicator.replicate() are not atomic with each other, so this node can
+    // step down (a concurrent higher-term AppendEntries/RequestVote handled on another thread, or -
+    // in production - the periodic scheduler's own replicate() call) in the narrow window between
+    // them. replicate() then throws IllegalStateException; propose() must translate that into
+    // NotLeaderException rather than let a raw IllegalStateException escape to the caller.
+    TopicManager topicManager = new TopicManager(tempDir);
+    topicManager.createTopic("orders", 1);
+
+    RaftNode leader = new RaftNode("broker-1");
+    leader.becomeCandidate();
+    leader.becomeLeader();
+
+    RaftNode follower = new RaftNode("broker-2");
+    List<AppendEntriesPeer> peers =
+        List.of(new AppendEntriesPeer("broker-2", new InProcessAppendEntriesConnection(follower)));
+    RaftLogReplicator replicator = new RaftLogReplicator(leader, peers, 2);
+    replicator.initializeForNewLeader();
+
+    RaftQueueStateMachine stateMachine =
+        new RaftQueueStateMachine(topicManager, new InMemoryLastAppliedStore());
+    RaftLogApplier applier = new RaftLogApplier(leader, stateMachine);
+    RaftReplicatedQueue queue = new RaftReplicatedQueue(leader, replicator, applier, stateMachine);
+
+    ExecutorService executor = Executors.newFixedThreadPool(4);
+    AtomicInteger keyCounter = new AtomicInteger();
+    List<Future<?>> futures = new ArrayList<>();
+
+    try {
+      for (int i = 0; i < 200; i++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  try {
+                    queue.propose(
+                        new PublishCommand(
+                            "orders", 0, "key-" + keyCounter.incrementAndGet(), "payload"));
+                  } catch (NotLeaderException | QuorumUnavailableException expected) {
+                    // Both are acceptable outcomes once this node steps down mid-run - only a raw
+                    // IllegalStateException (or any other unexpected exception) is the bug.
+                  }
+                }));
+      }
+
+      for (int i = 0; i < 10; i++) {
+        futures.add(executor.submit(() -> leader.advanceTerm(leader.getCurrentTerm() + 1)));
+      }
+
+      for (Future<?> future : futures) {
+        future.get(15, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   @Test

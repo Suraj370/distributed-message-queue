@@ -26,6 +26,14 @@ import java.util.Map;
  * being removed from the cluster (membership stays static in this milestone - see requirement 5).
  * Majority must be computed from clusterSize, never from peers.size() + 1, or an unavailable member
  * would silently shrink the majority requirement and let a minority commit.
+ *
+ * <p>Thread safety: nextIndex/matchIndex are plain HashMaps mutated by replicate(), read by
+ * getNextIndex()/getMatchIndex(), and reset by initializeForNewLeader() - all four are synchronized
+ * on this instance. This matters because replicate() is called from more than one thread in
+ * production: a client-request thread (via RaftReplicatedQueue.propose()) and the periodic
+ * scheduler thread (via RaftNodeScheduler's onTick hook, driving catch-up replication even without
+ * a new publish). Serializing those calls keeps the per-peer bookkeeping consistent without
+ * changing any of the Raft decision logic itself.
  */
 public class RaftLogReplicator {
 
@@ -50,7 +58,7 @@ public class RaftLogReplicator {
     this.clusterSize = clusterSize;
   }
 
-  public void initializeForNewLeader() {
+  public synchronized void initializeForNewLeader() {
     long lastIndex = localNode.getLog().lastIndex();
     for (AppendEntriesPeer peer : peers) {
       nextIndex.put(peer.nodeId(), lastIndex + 1);
@@ -58,16 +66,16 @@ public class RaftLogReplicator {
     }
   }
 
-  public long getNextIndex(String peerId) {
+  public synchronized long getNextIndex(String peerId) {
     return nextIndex.getOrDefault(peerId, localNode.getLog().lastIndex() + 1);
   }
 
-  public long getMatchIndex(String peerId) {
+  public synchronized long getMatchIndex(String peerId) {
     return matchIndex.getOrDefault(peerId, 0L);
   }
 
   /** Replicates to every peer, then attempts to advance the leader's commitIndex. */
-  public void replicate(long leaderCommit) {
+  public synchronized void replicate(long leaderCommit) {
 
     if (localNode.getState() != RaftState.LEADER) {
       throw new IllegalStateException(

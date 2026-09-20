@@ -20,6 +20,7 @@ public class RaftNodeScheduler implements AutoCloseable {
 
   private final RaftElectionDriver electionDriver;
   private final HeartbeatBroadcaster heartbeatBroadcaster;
+  private final Runnable onTick;
   private final Clock clock;
   private final long tickIntervalMillis;
   private final ScheduledExecutorService executor;
@@ -31,6 +32,30 @@ public class RaftNodeScheduler implements AutoCloseable {
       long minElectionTimeoutMillis,
       long heartbeatIntervalMillis,
       Clock clock) {
+    this(
+        electionDriver,
+        heartbeatBroadcaster,
+        minElectionTimeoutMillis,
+        heartbeatIntervalMillis,
+        clock,
+        () -> {});
+  }
+
+  /**
+   * onTick runs every scheduler tick, after election/heartbeat bookkeeping - real wiring uses it to
+   * periodically drive RaftLogReplicator.replicate() while this node is leader, so a behind
+   * follower (e.g. one that just restarted) catches up automatically instead of only on the next
+   * client publish. Covered by the same per-tick RuntimeException guard as everything else in
+   * tick(), so a transient replication error (an unreachable peer, a stale term) never kills the
+   * scheduler loop.
+   */
+  public RaftNodeScheduler(
+      RaftElectionDriver electionDriver,
+      HeartbeatBroadcaster heartbeatBroadcaster,
+      long minElectionTimeoutMillis,
+      long heartbeatIntervalMillis,
+      Clock clock,
+      Runnable onTick) {
 
     if (heartbeatIntervalMillis >= minElectionTimeoutMillis) {
       throw new IllegalArgumentException(
@@ -42,6 +67,7 @@ public class RaftNodeScheduler implements AutoCloseable {
 
     this.electionDriver = electionDriver;
     this.heartbeatBroadcaster = heartbeatBroadcaster;
+    this.onTick = onTick;
     this.clock = clock;
     this.tickIntervalMillis = heartbeatIntervalMillis;
     this.executor = Executors.newSingleThreadScheduledExecutor(RaftNodeScheduler::newDaemonThread);
@@ -62,6 +88,7 @@ public class RaftNodeScheduler implements AutoCloseable {
     try {
       electionDriver.tick(clock.millis());
       heartbeatBroadcaster.broadcastIfLeader();
+      onTick.run();
     } catch (RuntimeException exception) {
       // A scheduled task that throws would silently stop being rescheduled; swallow and retry
       // on the next tick instead of killing the loop.
