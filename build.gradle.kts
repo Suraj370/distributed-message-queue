@@ -3,6 +3,7 @@ plugins {
 	id("org.springframework.boot") version "4.1.1"
 	id("io.spring.dependency-management") version "1.1.7"
 	id("com.diffplug.spotless") version "8.10.2"
+	id("me.champeau.jmh") version "0.7.3"
 }
 
 group = "com.surajpanda"
@@ -73,6 +74,14 @@ val dockerTest = tasks.register<Test>("dockerTest") {
 
 tasks.named("check") {
 	dependsOn(dockerTest)
+}
+
+// JMH benchmarks live in their own source set (src/jmh/java), wired up automatically by the
+// me.champeau.jmh plugin with main's classes on its compile classpath. They are opt-in via
+// `./gradlew jmh` - deliberately not part of `check`/`build`, since they're slow, noisy under
+// shared-CI-machine contention, and answer a different question ("how fast") than correctness.
+jmh {
+	jmhVersion.set("1.37")
 }
 
 spotless {
