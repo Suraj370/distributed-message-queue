@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class RaftElectionDriverTest {
@@ -101,6 +102,41 @@ class RaftElectionDriverTest {
 
     assertEquals(RaftState.FOLLOWER, node.getState());
     assertTrue(response.accepted());
+  }
+
+  @Test
+  void winningAnElectionInvokesTheOnBecomeLeaderHook() {
+    RaftNode node = new RaftNode("broker-1");
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, List.of(), 1);
+    ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
+    AtomicBoolean invoked = new AtomicBoolean(false);
+    RaftElectionDriver driver =
+        new RaftElectionDriver(node, coordinator, timeout, 0, () -> invoked.set(true));
+
+    driver.tick(150);
+
+    assertEquals(RaftState.LEADER, node.getState());
+    assertTrue(invoked.get());
+  }
+
+  @Test
+  void losingAnElectionDoesNotInvokeTheOnBecomeLeaderHook() {
+    RaftNode node = new RaftNode("broker-1");
+    RaftNode peer = new RaftNode("broker-2");
+    peer.handleRequestVote(new RequestVoteRequest(1, "broker-9", 0, 0)); // peer busy, will reject
+
+    List<RaftPeer> peers =
+        List.of(new RaftPeer(peer.getNodeId(), new InProcessRaftPeerConnection(peer)));
+    ElectionCoordinator coordinator = new ElectionCoordinator(node, peers, 2);
+    ElectionTimeout timeout = new ElectionTimeout(100, 100, new Random(1));
+    AtomicBoolean invoked = new AtomicBoolean(false);
+    RaftElectionDriver driver =
+        new RaftElectionDriver(node, coordinator, timeout, 0, () -> invoked.set(true));
+
+    driver.tick(150);
+
+    assertEquals(RaftState.CANDIDATE, node.getState());
+    assertFalse(invoked.get());
   }
 
   @Test

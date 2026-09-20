@@ -11,15 +11,33 @@ public class RaftElectionDriver {
   private final RaftNode node;
   private final ElectionCoordinator coordinator;
   private final ElectionTimeout electionTimeout;
+  private final Runnable onBecomeLeader;
 
   public RaftElectionDriver(
       RaftNode node,
       ElectionCoordinator coordinator,
       ElectionTimeout electionTimeout,
       long startMillis) {
+    this(node, coordinator, electionTimeout, startMillis, () -> {});
+  }
+
+  /**
+   * onBecomeLeader runs synchronously right after a startElection() call wins - real wiring uses it
+   * to call RaftLogReplicator.initializeForNewLeader(), which must happen exactly once per new
+   * leadership term before the first replicate() call (see RaftLogReplicator's own javadoc).
+   * Nothing else in this class is aware of the replicator, and it stays that way - this is just a
+   * hook.
+   */
+  public RaftElectionDriver(
+      RaftNode node,
+      ElectionCoordinator coordinator,
+      ElectionTimeout electionTimeout,
+      long startMillis,
+      Runnable onBecomeLeader) {
     this.node = node;
     this.coordinator = coordinator;
     this.electionTimeout = electionTimeout;
+    this.onBecomeLeader = onBecomeLeader;
     electionTimeout.reset(startMillis);
   }
 
@@ -45,7 +63,9 @@ public class RaftElectionDriver {
       node.becomeFollower();
     }
 
-    coordinator.startElection();
+    if (coordinator.startElection()) {
+      onBecomeLeader.run();
+    }
     electionTimeout.reset(nowMillis);
   }
 
