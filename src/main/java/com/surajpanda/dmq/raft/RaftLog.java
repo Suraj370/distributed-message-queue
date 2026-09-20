@@ -88,6 +88,17 @@ public class RaftLog {
     return true;
   }
 
+  /**
+   * Restores the suffix starting at the given 0-indexed list position to exactly savedSuffix,
+   * discarding whatever currently occupies that position onward. Used by DurableRaftLog to roll
+   * back an in-memory mutation whose matching durable write failed, so memory can never end up
+   * ahead of what was actually persisted.
+   */
+  protected synchronized void restoreSuffix(int fromPosition, List<LogEntry> savedSuffix) {
+    entries.subList(fromPosition, entries.size()).clear();
+    entries.addAll(savedSuffix);
+  }
+
   private boolean hasMatchingEntry(long prevLogIndex, long prevLogTerm) {
 
     if (prevLogIndex == 0) {

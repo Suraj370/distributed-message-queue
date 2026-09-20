@@ -12,6 +12,7 @@ import com.surajpanda.dmq.partition.Partition;
 import com.surajpanda.dmq.queue.PublishCommand;
 import com.surajpanda.dmq.queue.QuorumUnavailableException;
 import com.surajpanda.dmq.raft.FileRaftLogStore;
+import com.surajpanda.dmq.raft.RaftPersistenceException;
 import com.surajpanda.dmq.raft.RaftState;
 import com.surajpanda.dmq.support.SimulatedCluster;
 import com.surajpanda.dmq.wal.Wal;
@@ -271,10 +272,14 @@ class DistributedFailureTest {
             .payload());
   }
 
-  // TEST 12: a corrupt/incomplete final persistent record is handled per the existing policy
-  // (discard the final record, recover everything before it) rather than crashing recovery.
+  // TEST 12: the Raft log store now persists every mutation as a complete, atomically-promoted
+  // snapshot (temp file, fully written and forced, then renamed over the real file) rather than an
+  // append-only stream of incremental records - see FileRaftLogStore. That means the real file is
+  // never partially written by this code's own operation, so a corrupted line appearing in it is
+  // always genuine corruption, not a benign crash-mid-write artifact, and restart must fail loudly
+  // instead of silently discarding it.
   @Test
-  void corruptedFinalRaftLogRecordIsDiscardedOnRestart() throws Exception {
+  void corruptedRealRaftLogFileFailsRestartLoudly() throws Exception {
     SimulatedCluster cluster = new SimulatedCluster(3, tempDir, "orders", 1);
     cluster.electLeader(0);
     cluster.node(0).queue().propose(new PublishCommand("orders", 0, "key-1", "payload-1"));
@@ -283,6 +288,22 @@ class DistributedFailureTest {
     Path raftLogFile = tempDir.resolve(cluster.id(0)).resolve("raft-log");
     Files.writeString(raftLogFile, "E|2|1|not-complete", StandardOpenOption.APPEND);
 
+    assertThrows(RaftPersistenceException.class, () -> cluster.restartNode(0));
+  }
+
+  // The realistic crash-mid-write artifact under the new atomic-replacement design is an
+  // incomplete ".tmp" file left behind by an interrupted write that never reached the atomic
+  // rename - not a corrupted real file. That must be harmless on restart.
+  @Test
+  void strayIncompleteRaftLogTempFileDoesNotAffectRestart() throws Exception {
+    SimulatedCluster cluster = new SimulatedCluster(3, tempDir, "orders", 1);
+    cluster.electLeader(0);
+    cluster.node(0).queue().propose(new PublishCommand("orders", 0, "key-1", "payload-1"));
+    cluster.replicateAndCommit(0);
+
+    Path raftLogFile = tempDir.resolve(cluster.id(0)).resolve("raft-log");
+    Files.writeString(raftLogFile.resolveSibling("raft-log.tmp"), "E|2|1|not-complete");
+
     cluster.restartNode(0);
 
     assertEquals(1, cluster.node(0).raftNode().getLog().lastIndex());
@@ -290,9 +311,6 @@ class DistributedFailureTest {
         "payload-1",
         PublishCommand.decode(cluster.node(0).raftNode().getLog().get(1).orElseThrow().command())
             .payload());
-
-    // Confirms the durable store itself applies the same "discard corrupted final line" policy,
-    // independent of DurableRaftLog's own reconstruction.
     assertEquals(1, new FileRaftLogStore(raftLogFile).loadAll().size());
   }
 }
