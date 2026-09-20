@@ -24,7 +24,7 @@ class WalTest {
     Wal wal = new Wal(walFile);
 
     Message message =
-        new Message(UUID.randomUUID(), "customer-123", "order-created", Instant.now(), 0, 0);
+        new Message(UUID.randomUUID(), "customer-123", "order-created", Instant.now(), 0, 0, null);
 
     wal.append(message);
 
@@ -45,11 +45,11 @@ class WalTest {
 
     Wal wal = new Wal(walFile);
     Message first =
-        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0);
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0, null);
     Message second =
-        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1);
+        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1, null);
     Message third =
-        new Message(UUID.randomUUID(), "customer-3", "order-shipped", Instant.now(), 0, 2);
+        new Message(UUID.randomUUID(), "customer-3", "order-shipped", Instant.now(), 0, 2, null);
     wal.append(first);
     wal.append(second);
     wal.append(third);
@@ -81,10 +81,10 @@ class WalTest {
     Wal wal = new Wal(walFile);
 
     Message first =
-        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0);
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0, null);
 
     Message second =
-        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1);
+        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1, null);
 
     wal.append(first);
     wal.append(second);
@@ -110,7 +110,7 @@ class WalTest {
     Wal wal = new Wal(walFile);
 
     Message message =
-        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0);
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0, null);
 
     wal.append(message);
 
@@ -130,10 +130,10 @@ class WalTest {
     Wal wal = new Wal(walFile);
 
     Message first =
-        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0);
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0, null);
 
     Message second =
-        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1);
+        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1, null);
 
     wal.append(first);
 
@@ -144,5 +144,26 @@ class WalTest {
     Wal recoveredWal = new Wal(walFile);
 
     assertThrows(IOException.class, recoveredWal::read);
+  }
+
+  @Test
+  void shouldRoundTripRaftLogIndexThroughRecovery() throws Exception {
+
+    Path walFile = tempDir.resolve("partition-0.log");
+
+    Wal wal = new Wal(walFile);
+
+    Message tagged =
+        new Message(UUID.randomUUID(), "customer-1", "order-created", Instant.now(), 0, 0, 42L);
+    Message untagged =
+        new Message(UUID.randomUUID(), "customer-2", "order-paid", Instant.now(), 0, 1, null);
+
+    wal.append(tagged);
+    wal.append(untagged);
+
+    var recoveredMessages = new Wal(walFile).read();
+
+    assertEquals(42L, recoveredMessages.get(0).raftLogIndex());
+    assertEquals(null, recoveredMessages.get(1).raftLogIndex());
   }
 }

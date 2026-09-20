@@ -105,6 +105,30 @@ class ConsumerOffsetPersistenceTest {
   }
 
   @Test
+  void multipleSequentialCommitsEachAdvanceTheNextFetch() throws Exception {
+    Partition partition = new Partition("orders", 0, new Wal(tempDir.resolve("p0.log")));
+    partition.append("key-1", "message-1");
+    partition.append("key-2", "message-2");
+    partition.append("key-3", "message-3");
+
+    ConsumerGroup group =
+        new ConsumerGroup("orders-group", new FileOffsetStore(tempDir.resolve("offsets")));
+    Consumer consumer = new Consumer(partition);
+
+    assertEquals(0, consumer.fetchNext(group).orElseThrow().offset());
+    group.commitOffset(partition, 1);
+
+    assertEquals(1, consumer.fetchNext(group).orElseThrow().offset());
+    group.commitOffset(partition, 2);
+
+    assertEquals(2, consumer.fetchNext(group).orElseThrow().offset());
+    group.commitOffset(partition, 3);
+
+    assertEquals(3, group.getCommittedOffset(partition));
+    assertEquals(java.util.Optional.empty(), consumer.fetchNext(group));
+  }
+
+  @Test
   void rejectsInvalidNegativeOffset() throws Exception {
     Partition partition = new Partition("orders", 0, new Wal(tempDir.resolve("p0.log")));
     ConsumerGroup group =

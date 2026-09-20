@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -20,6 +22,7 @@ public class Partition {
 
   private final Queue<Message> messages = new ConcurrentLinkedQueue<>();
   private final ConcurrentSkipListMap<Long, Message> byOffset = new ConcurrentSkipListMap<>();
+  private final Set<Long> appliedRaftLogIndexes = ConcurrentHashMap.newKeySet();
 
   private volatile long nextOffset = 0;
 
@@ -48,22 +51,41 @@ public class Partition {
       byOffset.put(message.offset(), message);
 
       nextOffset = Math.max(nextOffset, message.offset() + 1);
+
+      if (message.raftLogIndex() != null) {
+        appliedRaftLogIndexes.add(message.raftLogIndex());
+      }
     }
   }
 
   public Message append(String key, String payload) throws IOException {
+    return append(key, payload, null);
+  }
+
+  /**
+   * Appends a message tagged with the Raft log index whose committed application produced it. The
+   * tag is durably persisted with the message (see Wal), so hasAppliedRaftIndex() keeps working
+   * correctly across a restart - this is what lets RaftQueueStateMachine tell "already durably
+   * applied" apart from "never applied" even if it crashes before recording its own last-applied
+   * index.
+   */
+  public Message append(String key, String payload, Long raftLogIndex) throws IOException {
 
     writeLock.lock();
 
     try {
       long offset = nextOffset;
 
-      Message message = Message.create(key, payload, id, offset);
+      Message message = Message.create(key, payload, id, offset, raftLogIndex);
 
       wal.append(message);
 
       messages.offer(message);
       byOffset.put(message.offset(), message);
+
+      if (raftLogIndex != null) {
+        appliedRaftLogIndexes.add(raftLogIndex);
+      }
 
       nextOffset++;
 
@@ -87,6 +109,10 @@ public class Partition {
 
       messages.offer(message);
       byOffset.put(message.offset(), message);
+
+      if (message.raftLogIndex() != null) {
+        appliedRaftLogIndexes.add(message.raftLogIndex());
+      }
 
       nextOffset = message.offset() + 1;
 
@@ -130,5 +156,15 @@ public class Partition {
   /** Non-destructive read of every message from fromOffset (inclusive) onward, in order. */
   public List<Message> readFrom(long fromOffset) {
     return byOffset.tailMap(fromOffset, true).values().stream().collect(Collectors.toList());
+  }
+
+  /**
+   * Whether a message tagged with this Raft log index has already been durably appended to this
+   * partition - either earlier in this run or recovered from the WAL on startup. Lets
+   * RaftQueueStateMachine detect a committed command it already applied in a previous run even if
+   * it crashed before persisting its own last-applied marker, without relying on that marker alone.
+   */
+  public boolean hasAppliedRaftIndex(long raftLogIndex) {
+    return appliedRaftLogIndexes.contains(raftLogIndex);
   }
 }

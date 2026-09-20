@@ -19,9 +19,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * a client request. Runs identically on the leader and on every follower, so applying the same
  * committed log in the same order is what makes their queue state converge.
  *
- * <p>Durably tracks its own applied index (separately from RaftNode's in-memory lastApplied) so a
- * restart can never cause the same committed entry to be applied - and therefore appended to the
- * WAL - twice.
+ * <p>Durably tracks its own applied index (separately from RaftNode's in-memory lastApplied) as a
+ * fast-path skip for entries already known to be applied. That index alone is not sufficient for
+ * correctness, though: it is saved *after* the WAL write, so a crash between the two would leave it
+ * stale and the same entry would be re-applied on restart. What actually prevents a duplicate
+ * message in that case is Partition.hasAppliedRaftIndex() - the WAL itself, tagged with the Raft
+ * log index, is the source of truth for whether a given committed command was already durably
+ * applied.
  */
 public class RaftQueueStateMachine implements RaftStateMachine {
 
@@ -58,8 +62,13 @@ public class RaftQueueStateMachine implements RaftStateMachine {
     Partition partition = topic.getPartition(command.partition());
 
     try {
-      Message applied = partition.append(command.key(), command.payload());
-      appliedMessages.put(entry.index(), applied);
+      if (!partition.hasAppliedRaftIndex(entry.index())) {
+        // Not a fast-path skip via lastAppliedIndex, but not necessarily new either: a previous
+        // run may have written the WAL entry and then crashed before persisting lastAppliedIndex.
+        // The WAL tag is what actually prevents the duplicate in that case.
+        Message applied = partition.append(command.key(), command.payload(), entry.index());
+        appliedMessages.put(entry.index(), applied);
+      }
     } catch (IOException exception) {
       throw new UncheckedIOException(
           "Failed to apply committed PublishCommand at index " + entry.index(), exception);

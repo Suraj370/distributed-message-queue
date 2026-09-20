@@ -25,13 +25,14 @@ public class Wal {
 
     String record =
         String.format(
-            "%s|%s|%s|%s|%d|%d%n",
+            "%s|%s|%s|%s|%d|%d|%s%n",
             message.id(),
             message.key(),
             message.payload(),
             message.timestamp(),
             message.partition(),
-            message.offset());
+            message.offset(),
+            message.raftLogIndex() == null ? "" : message.raftLogIndex());
 
     Path parent = file.getParent();
     if (parent != null) {
@@ -70,7 +71,7 @@ public class Wal {
 
         String[] parts = line.split("\\|", -1);
 
-        if (parts.length != 6) {
+        if (parts.length != 7) {
           throw new IllegalArgumentException("Invalid WAL record");
         }
 
@@ -80,8 +81,9 @@ public class Wal {
         Instant timestamp = Instant.parse(parts[3]);
         int partition = Integer.parseInt(parts[4]);
         long offset = Long.parseLong(parts[5]);
+        Long raftLogIndex = parts[6].isEmpty() ? null : Long.parseLong(parts[6]);
 
-        Message message = new Message(id, key, payload, timestamp, partition, offset);
+        Message message = new Message(id, key, payload, timestamp, partition, offset, raftLogIndex);
 
         messages.add(message);
 
