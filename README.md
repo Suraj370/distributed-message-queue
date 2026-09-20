@@ -27,6 +27,95 @@ A fault-tolerant distributed message queue built using Java, Spring Boot, and Gr
 
 🚧 Under development
 
+## Run with Docker
+
+The fastest way to see the whole system - a real 3-broker Raft cluster, Prometheus, and Grafana -
+running together on one machine.
+
+**Prerequisites**: Docker, Docker Compose (`docker compose version`).
+
+**Start:**
+
+```
+docker compose up --build
+```
+
+**Ports:**
+
+| Service | Port | Purpose |
+|---|---|---|
+| broker-1 | `8080` | HTTP API (`/api/v1/...`), Actuator (`/actuator/health`, `/actuator/prometheus`) |
+| broker-2 | `8081` | Same, this broker's own port |
+| broker-3 | `8082` | Same, this broker's own port |
+| Prometheus | `9090` | Prometheus UI/API |
+| Grafana | `3000` | Dashboard UI (anonymous admin access - local demo only) |
+
+Internally, brokers always reach each other over the Docker Compose network by service name
+(`broker-1`/`broker-2`/`broker-3`, always port `8080` - see `docker-compose.yml`), never
+`localhost` and never the host-mapped ports above, which only exist for a human on the host
+machine to reach things.
+
+**Stop:** `docker compose down` (add `-v` to also delete the named volumes and start completely
+fresh next time - see Persistence below).
+
+**Persistence:** each broker gets its own named Docker volume (`broker-1-data`, `broker-2-data`,
+`broker-3-data`) mounted at `/data`, holding its WAL, Raft log/metadata, and consumer offsets. A
+`docker compose restart <broker>` (or `stop` + `start`) reuses the same volume, so a broker's
+durable state - and the cluster's committed data - survives a restart exactly as the existing
+recovery logic expects (see "Automatic follower catch-up" above). A `docker compose down` without
+`-v` also preserves the volumes across a full stack teardown/recreate.
+
+**Broker logs:** `docker compose logs -f broker-1` (or `broker-2`/`broker-3`; drop `-f` for a
+one-shot dump). `docker compose ps` shows each broker's health-check status (`healthy`/
+`unhealthy`/`starting`).
+
+### Demonstration flow
+
+All commands use the real HTTP API already documented above - nothing here is invented.
+
+1. **Start the cluster:**
+   ```
+   docker compose up --build
+   ```
+2. **Verify the brokers become healthy:**
+   ```
+   docker compose ps
+   ```
+   Each broker should show `(healthy)` within about 30 seconds (Docker's `HEALTHCHECK`, defined in
+   the Dockerfile, polls `/actuator/health`).
+3. **Create a topic on every broker** (topic creation is not yet Raft-replicated - see Known
+   limitations - so every broker needs it created directly for now):
+   ```
+   for p in 8080 8081 8082; do curl -X POST "http://localhost:$p/api/v1/topics?name=demo&partitions=1"; done
+   ```
+4. **Publish messages** (only the current Raft leader accepts a publish; check
+   `/api/v1/status` on each port first, or just retry against another port if one returns
+   `NOT_LEADER`):
+   ```
+   curl -X POST "http://localhost:8080/api/v1/messages?topic=demo&key=k1&payload=hello"
+   ```
+5. **Consume and commit:**
+   ```
+   curl -X POST "http://localhost:8080/api/v1/consumer-groups/g1/fetch?topic=demo&partition=0"
+   curl -X POST "http://localhost:8080/api/v1/consumer-groups/g1/commit?topic=demo&partition=0&offset=1"
+   ```
+6. **Open Grafana** at <http://localhost:3000> - the "DMQ Cluster" dashboard is already provisioned
+   (DMQ folder); the top-row publish rate and append latency panels move immediately after step 4.
+7. **Stop a broker** (whichever `/api/v1/status` reports as `"raftState":"LEADER"`):
+   ```
+   docker compose stop broker-1
+   ```
+8. **Observe the Raft leader change** - either poll `/api/v1/status` on the two remaining brokers,
+   or watch the dashboard's "Broker Raft state" and "Current leader" panels flip to the newly
+   elected broker within a few seconds.
+9. **Restart the stopped broker:**
+   ```
+   docker compose start broker-1
+   ```
+10. **Observe recovery/catch-up** - `/api/v1/status` on the restarted broker shows it rejoin as
+    `FOLLOWER` and its `commitIndex`/`lastApplied` converge back to the cluster's, with no data
+    loss (its WAL/Raft-log files under `/data` were never touched by the restart).
+
 ## Architecture
 
 ```
