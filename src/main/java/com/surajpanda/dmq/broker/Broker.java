@@ -6,6 +6,7 @@ import com.surajpanda.dmq.queue.RaftReplicatedQueue;
 import com.surajpanda.dmq.topic.Topic;
 import com.surajpanda.dmq.topic.TopicManager;
 import java.io.IOException;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -47,8 +48,25 @@ public class Broker {
       throw new IllegalArgumentException("Topic does not exist: " + topicName);
     }
 
-    int partitionId = Math.abs(key.hashCode()) % topic.getPartitions().size();
+    int partitionId = PartitionSelector.select(key.hashCode(), topic.getPartitions().size());
 
     return replicatedQueue.propose(new PublishCommand(topicName, partitionId, key, payload));
+  }
+
+  /**
+   * Non-destructive, offset-indexed read of this broker's own local queue state - added so an
+   * external caller (an operator, or a test driving the real HTTP API) can verify a committed
+   * publish actually reached queue state without reaching into this broker's internal Java objects.
+   * Empty if the topic, partition, or offset does not exist; never throws for those cases.
+   */
+  public Optional<Message> read(String topicName, int partitionId, long offset) {
+
+    Topic topic = topicManager.getTopic(topicName);
+
+    if (topic == null || partitionId < 0 || partitionId >= topic.getPartitions().size()) {
+      return Optional.empty();
+    }
+
+    return topic.getPartition(partitionId).get(offset);
   }
 }
